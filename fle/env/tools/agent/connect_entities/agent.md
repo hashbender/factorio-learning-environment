@@ -78,8 +78,8 @@ Pipes connect fluid-handling entities:
 
 ```python
 # Connect water flow with over and underground pipes
-water_pipes = connect_entities(offshore_pump, boiler, {Prototype.TransportBelt, Prototype.UndergroundBelt})
-print(f"Connected offshore_pump at {offshore_pump.position} to boiler at {boiler.position} with {pipes}")
+water_pipes = connect_entities(offshore_pump, boiler, {Prototype.Pipe, Prototype.UndergroundPipe})
+print(f"Connected offshore_pump at {offshore_pump.position} to boiler at {boiler.position} with {water_pipes}")
 ```
 
 Key points:
