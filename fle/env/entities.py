@@ -772,8 +772,8 @@ class ConnectDryRun(BaseModel):
     entities / required: what would be placed (in route order) and the count per item.
     in_inventory / missing / enough_in_inventory: what you hold of those items now.
     belt_changes: belts already on the map that the route would turn.
-    error / blocked_at: when no route was found, the error the real call would raise
-    and the position it names.
+    reason / blocked_at: when no route was found, the message the real call would fail
+    with and the position it names.
     Fields can also be read like a dict: plan["route_found"]."""
 
     route_found: bool
@@ -785,7 +785,7 @@ class ConnectDryRun(BaseModel):
     enough_in_inventory: bool = False
     entities: List[PlannedEntity] = []
     belt_changes: List[str] = []
-    error: Optional[str] = None
+    reason: Optional[str] = None
     blocked_at: Optional[Position] = None
 
     def __getitem__(self, key: str):
@@ -801,7 +801,7 @@ class ConnectDryRun(BaseModel):
         if not self.route_found:
             at = self.blocked_at
             where = f", blocked_at=({at.x}, {at.y})" if at is not None else ""
-            return f"ConnectDryRun(route_found=False{where}, error={self.error!r})"
+            return f"ConnectDryRun(route_found=False{where}, reason={self.reason!r})"
         parts = [
             "route_found=True",
             f"required={self.required}",

@@ -432,8 +432,14 @@ end
 
 
 -- A dry run places nothing; it records what would be placed and where
+local function planned_key(connection_type, position)
+    return connection_type .. ":" .. position.x .. ":" .. position.y
+end
+
 local function record_planned(counter_state, connection_type, position, dir)
     if not counter_state.planned then counter_state.planned = {} end
+    if not counter_state.planned_at then counter_state.planned_at = {} end
+    counter_state.planned_at[planned_key(connection_type, position)] = true
     table.insert(counter_state.planned, {
         name = "\"" .. connection_type .. "\"",
         x = position.x,
@@ -452,6 +458,14 @@ local function place_at_position(player, connection_type, current_position, dir,
         if entity.position.x == placement_position.x and entity.position.y == placement_position.y then
             return
         end
+    end
+
+    -- A route can pass the same tile twice (its first and last tile). The real pass
+    -- finds the entity it has just placed there and places nothing more; the dry pass
+    -- counts the tile once, so the count is the number of entities the real pass places.
+    if dry_run and counter_state.planned_at
+        and counter_state.planned_at[planned_key(connection_type, placement_position)] then
+        return
     end
 
     if is_electric_pole then

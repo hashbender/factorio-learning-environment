@@ -2,8 +2,8 @@
 
 A dry run builds nothing. It reports whether the game finds a route and every
 placement along it passes the game's build check, what would be placed and
-where, and what the character holds; or, when there is no route, the error the
-real call would raise and the position it names.
+where, and what the character holds; or, when there is no route, the message the
+real call would fail with and the position it names.
 """
 
 import re
@@ -48,6 +48,20 @@ def planned_entities(planned: List[dict]) -> List[PlannedEntity]:
     return out
 
 
+def merge_leg(entities: List[PlannedEntity], leg: List[PlannedEntity]) -> None:
+    """Add a leg's plan to the route. A tile an earlier leg already covers with the
+    same entity is not placed again (the real call finds it there): it keeps its
+    place in the order and takes the later leg's direction."""
+    at = {(e.name, e.position.x, e.position.y): i for i, e in enumerate(entities)}
+    for e in leg:
+        key = (e.name, e.position.x, e.position.y)
+        if key in at:
+            entities[at[key]] = e
+        else:
+            at[key] = len(entities)
+            entities.append(e)
+
+
 def success(
     entities: List[PlannedEntity],
     inventory: Dict[str, int],
@@ -78,6 +92,6 @@ def failure(message: str, available: int = 0) -> ConnectDryRun:
     return ConnectDryRun(
         route_found=False,
         number_of_entities_available=available,
-        error=message,
+        reason=message,
         blocked_at=blocked_position(message),
     )

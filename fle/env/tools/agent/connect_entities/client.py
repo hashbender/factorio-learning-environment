@@ -133,7 +133,7 @@ class ConnectEntities(Tool):
         connect_entities(*waypoints, connection_type=connection_type).
         :param waypoints: Two or more Positions, Entities or EntityGroups to connect
         :param connection_type: The Prototype to connect with, or a set of Prototypes of one kind, e.g. {Prototype.Pipe, Prototype.UndergroundPipe}
-        :param dry_run: If True, build nothing and return a ConnectDryRun saying whether a route exists (route_found), what would be placed and where (entities, required), what you hold (in_inventory, missing), or the error and blocked position (error, blocked_at). It never raises for a route that fails, takes no game time and leaves you where you are.
+        :param dry_run: If True, build nothing and return a ConnectDryRun saying whether a route exists (route_found), what would be placed and where (entities, required), what you hold (in_inventory, missing), or why not and the blocked position (reason, blocked_at). It never raises for a route that fails, takes no game time and leaves you where you are.
         :param allow_belt_changes: Belts only. If False (default), belts that are already on the map keep their direction, type and position; a route that would change one fails, naming it, and nothing is built. If True, the end belt of an existing line may be turned to face the new belts.
         :return: The resulting entity group (e.g. a BeltGroup, PipeGroup or ElectricityGroup); with dry_run=True, a ConnectDryRun
         """
@@ -321,8 +321,9 @@ class ConnectEntities(Tool):
                 if not isinstance(leg, dict):
                     continue  # this leg is already connected: nothing to place
                 available = leg.get("number_of_entities_available", available)
-                entities.extend(
-                    dry_run_result.planned_entities(leg.get("planned") or [])
+                dry_run_result.merge_leg(
+                    entities,
+                    dry_run_result.planned_entities(leg.get("planned") or []),
                 )
                 turn = leg.get("would_turn")
                 if turn:

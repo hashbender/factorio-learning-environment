@@ -61,7 +61,7 @@ def test_route_found_lists_what_would_be_placed():
     assert plan["enough_in_inventory"] is False
     assert plan["number_of_entities_required"] == 3
     assert plan["number_of_entities_available"] == 4
-    assert plan["error"] is None and plan["blocked_at"] is None
+    assert plan["reason"] is None and plan["blocked_at"] is None
     assert isinstance(plan, ConnectDryRun) and plan.route_found is True
     first = plan.entities[0]
     assert isinstance(first, PlannedEntity)
@@ -71,7 +71,7 @@ def test_route_found_lists_what_would_be_placed():
         Direction.DOWN,
     )
     assert first["position"] == first.position  # dict-style reads work too
-    assert "route_found" in plan.keys() and plan.get("error") is None
+    assert "route_found" in plan.keys() and plan.get("reason") is None
     assert repr(plan) == (
         "ConnectDryRun(route_found=True, required={'transport-belt': 2, 'underground-belt': 1}, "
         "in_inventory={'transport-belt': 4, 'underground-belt': 0}, missing={'underground-belt': 1}, "
@@ -98,11 +98,11 @@ def test_failed_route_does_not_raise_and_names_the_blocked_position():
         Position(x=3.5, y=1.5), Position(x=3.5, y=6.5), Prototype.Pipe, dry_run=True
     )
     assert plan["route_found"] is False
-    assert plan["error"] == message
+    assert plan["reason"] == message
     assert plan["blocked_at"] == Position(x=3.5, y=-4.5)
     assert plan["entities"] == [] and plan["required"] == {}
     assert plan["number_of_entities_required"] is None
-    assert repr(plan) == f"ConnectDryRun(route_found=False, blocked_at=(3.5, -4.5), error={message!r})"
+    assert repr(plan) == f"ConnectDryRun(route_found=False, blocked_at=(3.5, -4.5), reason={message!r})"
 
 
 def test_failure_without_a_position():
@@ -140,7 +140,7 @@ def test_a_belt_that_would_be_turned_fails_the_dry_run_like_the_real_call():
         Position(x=3.5, y=1.5), Position(x=3.5, y=3.5), Prototype.TransportBelt, dry_run=True
     )
     assert plan["route_found"] is False
-    assert plan["error"] == (
+    assert plan["reason"] == (
         "This connection would change existing belts: transport-belt at (3.5, 1.5) facing RIGHT "
         "would be turned to face DOWN. Existing belts are only changed when "
         "allow_belt_changes=True is passed."
@@ -202,3 +202,31 @@ def test_get_connection_amount_still_raises_without_a_route():
         dr.planned_entities(PLANNED), {}, 0
     )
     assert tool(Position(x=0, y=0), Position(x=1, y=1), Prototype.Pipe) == 3
+
+
+def test_a_tile_shared_by_two_legs_is_listed_once():
+    corner_down = {"name": "transport-belt", "x": 0.5, "y": 2.5, "direction": 8}
+    corner_right = {"name": "transport-belt", "x": 0.5, "y": 2.5, "direction": 4}
+    leg1 = [{"name": "transport-belt", "x": 0.5, "y": 1.5, "direction": 8}, corner_down]
+    leg2 = [corner_right, {"name": "transport-belt", "x": 1.5, "y": 2.5, "direction": 4}]
+    tool, _ = _tool([_leg(leg1), _leg(leg2)], {})
+    plan = tool.__call_impl__(
+        Position(x=0.5, y=1.5),
+        Position(x=0.5, y=2.5),
+        Position(x=1.5, y=2.5),
+        connection_type=Prototype.TransportBelt,
+        dry_run=True,
+    )
+    assert [(e.position.x, e.position.y, e.direction) for e in plan.entities] == [
+        (0.5, 1.5, Direction.DOWN),
+        (0.5, 2.5, Direction.RIGHT),
+        (1.5, 2.5, Direction.RIGHT),
+    ]
+    assert plan.required == {"transport-belt": 3}
+
+
+def test_printing_a_failed_dry_run_does_not_read_as_a_program_error():
+    """The environment flags a step whose output contains "error"; a dry run that
+    reports a blocked route is an answer, not an error."""
+    plan = dr.failure("Failed to connect {'Pipe'} from a to b. Cannot connect: cannot place pipe at (3.5, 4.5): blocked by stone-furnace")
+    assert "error" not in repr(plan).lower() and "exception: " not in repr(plan).lower()
