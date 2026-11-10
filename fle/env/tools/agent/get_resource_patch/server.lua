@@ -73,6 +73,38 @@ storage.actions.get_resource_patch = function(player_index, resource, x, y, radi
             error("\"No resource of type " .. resource .. " at the specified location.\"")
         end
 
+        local resource_prototype = prototypes.entity[resource]
+        if resource_prototype and resource_prototype.infinite_resource then
+            -- Fluid resources (crude oil): the wells of a field are several tiles
+            -- apart, so join wells within 30 tiles of each other. size is the
+            -- fluid per second the field gives with one pumpjack on every well,
+            -- at base mining speed (no mining productivity): 10/s per well at
+            -- 100% yield in Factorio 2.0.
+            local product = resource_prototype.mineable_properties.products[1]
+            local per_unit = (product.amount or 1) / resource_prototype.mineable_properties.mining_time
+            local drill = prototypes.entity["pumpjack"]
+            local speed = drill and drill.mining_speed or 1
+            local seen = {}
+            local queue = {resource_entities[1]}
+            local wells = 0
+            local per_second = 0
+            while #queue > 0 do
+                local well = table.remove(queue)
+                local key = well.position.x .. "," .. well.position.y
+                if not seen[key] then
+                    seen[key] = true
+                    wells = wells + 1
+                    expand_bounding_box(bounding_box, well.position)
+                    per_second = per_second + speed * per_unit * well.amount / resource_prototype.normal_resource_amount
+                    for _, other in pairs(surface.find_entities_filtered{position = well.position, radius = 30, type = "resource", name = resource}) do
+                        table.insert(queue, other)
+                    end
+                end
+            end
+            render_box(bounding_box)
+            return {bounding_box = bounding_box, size = math.floor(per_second * 100 + 0.5) / 100, wells = wells}
+        end
+
         -- Recursive function to explore all connected resource entities
         local function explore_resource_patch(entity, visited)
             local key = entity.position.x .. "," .. entity.position.y

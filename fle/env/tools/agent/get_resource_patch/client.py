@@ -62,7 +62,10 @@ class GetResourcePatch(Tool):
         )  # , center=Position(x=(left_top.x + right_bottom.x) / 2, y=(left_top.y + right_bottom.y) / 2))
 
         resource_patch = ResourcePatch(
-            name=resource[0], size=response["size"], bounding_box=bounding_box
+            name=resource[0],
+            size=response["size"],
+            bounding_box=bounding_box,
+            wells=response.get("wells"),
         )
 
         return resource_patch

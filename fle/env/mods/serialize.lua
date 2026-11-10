@@ -1368,7 +1368,19 @@ storage.utils.serialize_entity = function(entity)
 
                 -- Add the resource amount and position
                 serialized.resources[resource.name].count = serialized.resources[resource.name].count + resource.amount
+                -- Fluid wells (crude oil): amount is a yield (normal_resource_amount
+                -- = 100%), so also report the fluid per second at this drill's base
+                -- mining speed (no mining productivity)
+                if resource.prototype.infinite_resource then
+                    local mp = resource.prototype.mineable_properties
+                    local per_second = (prototype.mining_speed or 1) * ((mp.products[1].amount or 1) / mp.mining_time)
+                        * resource.amount / resource.prototype.normal_resource_amount
+                    serialized.output_per_second = (serialized.output_per_second or 0) + per_second
+                end
             end
+        end
+        if serialized.output_per_second then
+            serialized.output_per_second = math.floor(serialized.output_per_second * 100 + 0.5) / 100
         end
 
 
