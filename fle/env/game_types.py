@@ -192,6 +192,10 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
         "coal-liquefaction",
         None,
     )  # These are recipes, not prototypes.
+    CoalLiquifaction = (
+        "coal-liquefaction",
+        None,
+    )  # Alias of CoalLiquefaction (the old, misspelled member name)
     SolidFuel = "solid-fuel", None
     LightOil = "light-oil", None
     HeavyOil = "heavy-oil", None
@@ -237,6 +241,10 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
     FlyingRobotFrame = "flying-robot-frame", None
 
     RocketSilo = "rocket-silo", ent.RocketSilo
+    RocketSiloRocket = (
+        "rocket-silo-rocket",
+        ent.Rocket,
+    )  # The rocket entity in a silo during a launch
     Rocket = (
         "rocket",
         ent.Ammo,
