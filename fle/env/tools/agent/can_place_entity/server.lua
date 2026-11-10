@@ -57,16 +57,13 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
 
     -- Factorio 2.0: an offshore pump stands on land at the edge of water, so the tile
     -- under it is usually not water. Let the game's placement rules decide.
+    -- The manual build check (as when a player builds it) also checks that the
+    -- pump faces the water; the default script check accepts any direction.
     if entity == "offshore-pump" then
-        local can_place = player.surface.can_place_entity{
-            name = entity,
-            force = player.force,
-            position = position,
-            direction = direction_enum
-        }
-        if not can_place then
+        if not storage.utils.can_place_entity(player, entity, position, direction_enum) then
             error("Cannot place the offshore pump at the specified position: it must be placed at the edge of water.")
         end
+        return true
     end
 
     ---- Check if the entity can be placed
