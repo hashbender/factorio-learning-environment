@@ -447,12 +447,15 @@ function harvest_trees(entities, count, from_position, player)
 
                     local tree_position = entity.position
                     local tree_surface = entity.surface
-                    local stump_name = entity.name.."-stump"
+                    -- Factorio 2.0: the stump is the tree's remains_when_mined, a
+                    -- corpse (decoration that cannot be mined); not every tree has one
+                    local remains = entity.prototype.remains_when_mined or {}
                     entity.destroy({raise_destroy=true})
-                    -- Try to create stump, if fails just continue
-                    pcall(function()
-                        tree_surface.create_entity({name=stump_name, position=tree_position})
-                    end)
+                    for _, stump in pairs(remains) do
+                        pcall(function()
+                            tree_surface.create_entity({name=stump.name, position=tree_position})
+                        end)
+                    end
                 end
             end
         end
