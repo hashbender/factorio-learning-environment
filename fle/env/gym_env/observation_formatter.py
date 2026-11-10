@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from fle.commons.constants import REWARD_OVERRIDE_KEY
-from fle.env.gym_env.observation import Observation
+from fle.env.gym_env.observation import CLIFF_LIMIT, CLIFF_RADIUS, Observation
 
 
 @dataclass
@@ -104,6 +104,13 @@ class FormattedObservation:
     - Agent 1: (15.0, 8.5)
     Shows x, y coordinates for each agent's character."""
 
+    cliffs_str: str
+    """Formatted string showing the cliffs near the character, nearest first.
+    Example:
+    ### Cliffs
+    The nearest cliffs within 40 tiles of you (up to 25, nearest first): (12, -30), (14, -30)
+    Empty when the cliffs are unknown."""
+
     raw_str: str
     """Complete formatted observation combining all components.
     Example:
@@ -170,6 +177,7 @@ class BasicObservationFormatter:
         include_research: bool = True,
         include_game_info: bool = True,
         include_character_positions: bool = True,
+        include_cliffs: bool = True,
     ):
         """Initialize the formatter with flags for which fields to include"""
         self.include_inventory = include_inventory
@@ -183,6 +191,7 @@ class BasicObservationFormatter:
         self.include_research = include_research
         self.include_game_info = include_game_info
         self.include_character_positions = include_character_positions
+        self.include_cliffs = include_cliffs
 
     @staticmethod
     def format_inventory(inventory: List[Dict[str, Any]]) -> str:
@@ -726,6 +735,31 @@ class BasicObservationFormatter:
 
         return "\n".join(lines)
 
+    @staticmethod
+    def format_cliffs(cliffs: Optional[List[Dict[str, Any]]]) -> str:
+        """Format the cliffs near the character, nearest first.
+
+        Args:
+            cliffs: List of dicts with 'x', 'y' keys, or None if unknown
+
+        Returns:
+            Formatted string, or "" when the cliffs are unknown
+        """
+        if cliffs is None:
+            return ""
+        if not cliffs:
+            return f"### Cliffs\nNone within {CLIFF_RADIUS} tiles of you."
+
+        def number(v) -> str:
+            f = float(v)
+            return str(int(f)) if f == int(f) else f"{f:g}"
+
+        points = ", ".join(f"({number(c['x'])}, {number(c['y'])})" for c in cliffs)
+        return (
+            f"### Cliffs\nThe nearest cliffs within {CLIFF_RADIUS} tiles of you "
+            f"(up to {CLIFF_LIMIT}, nearest first): {points}"
+        )
+
     def format(
         self, observation: Observation, last_message_timestamp: float = 0.0
     ) -> FormattedObservation:
@@ -774,6 +808,12 @@ class BasicObservationFormatter:
                 obs_dict.get("character_positions", [])
             )
             formatted_parts.append(character_positions_str)
+
+        # Add cliffs near the character
+        if self.include_cliffs:
+            cliffs_str = self.format_cliffs(obs_dict.get("cliffs"))
+            if cliffs_str:
+                formatted_parts.append(cliffs_str)
 
         # Add optional components if they exist and are enabled
         if self.include_task:
@@ -842,6 +882,9 @@ class BasicObservationFormatter:
                 obs_dict.get("character_positions", [])
             )
             if self.include_character_positions
+            else "",
+            cliffs_str=self.format_cliffs(obs_dict.get("cliffs"))
+            if self.include_cliffs
             else "",
             raw_str=raw_str,
         )

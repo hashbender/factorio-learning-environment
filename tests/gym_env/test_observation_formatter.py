@@ -186,3 +186,28 @@ def test_full_format():
     assert "Messages" in formatted.raw_str
     assert "Available Functions" in formatted.raw_str
     assert "Raw Output" in formatted.raw_str
+
+
+def test_format_cliffs():
+    fmt = BasicObservationFormatter.format_cliffs
+    assert fmt(None) == ""
+    assert fmt([]) == "### Cliffs\nNone within 40 tiles of you."
+    assert fmt([{"x": 12.0, "y": -30.5}, {"x": 14, "y": -30}]) == (
+        "### Cliffs\nThe nearest cliffs within 40 tiles of you "
+        "(up to 25, nearest first): (12, -30.5), (14, -30)"
+    )
+
+
+def test_cliffs_round_trip_and_section():
+    obs = make_minimal_observation()
+    assert "cliffs" not in obs.to_dict()  # unknown: no key, no section
+    assert "### Cliffs" not in BasicObservationFormatter().format(obs).raw_str
+
+    obs.cliffs = [{"x": 1.0, "y": 2.0}]
+    d = obs.to_dict()
+    assert d["cliffs"] == [{"x": 1.0, "y": 2.0}]
+    again = Observation.from_dict(d)
+    assert again.cliffs == [{"x": 1.0, "y": 2.0}]
+    formatted = BasicObservationFormatter().format(again)
+    assert "### Cliffs\nThe nearest cliffs" in formatted.raw_str
+    assert formatted.cliffs_str in formatted.raw_str

@@ -8,6 +8,11 @@ from fle.commons.models.achievements import ProductionFlows
 from fle.agents import TaskResponse
 from fle.env.entities import Inventory
 
+# Cliffs in the observation: those within CLIFF_RADIUS tiles of the character,
+# at most CLIFF_LIMIT, nearest first
+CLIFF_RADIUS = 40
+CLIFF_LIMIT = 25
+
 
 @dataclass
 class GameInfo:
@@ -64,6 +69,9 @@ class Observation:
     task_info: Optional[TaskInfo]
     map_image: str  # Base64 encoded PNG image
     character_positions: List[CharacterPosition]  # Position of each character/agent
+    # Cliffs near the agent's character, nearest first ({"x", "y"} each), or None
+    # when they could not be read
+    cliffs: Optional[List[Dict[str, float]]] = None
 
     @classmethod
     def from_dict(cls, obs_dict: Dict[str, Any]) -> "Observation":
@@ -205,6 +213,7 @@ class Observation:
             task_info=task_info,
             map_image=map_image,
             character_positions=character_positions,
+            cliffs=obs_dict.get("cliffs"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -310,4 +319,9 @@ class Observation:
                 }
                 for pos in self.character_positions
             ],
+            **(
+                {"cliffs": [{"x": c["x"], "y": c["y"]} for c in self.cliffs]}
+                if self.cliffs is not None
+                else {}
+            ),
         }

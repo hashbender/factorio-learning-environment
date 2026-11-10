@@ -21,6 +21,8 @@ from fle.env.gym_env.observation import (
     AgentMessage,
     TaskInfo,
     CharacterPosition,
+    CLIFF_LIMIT,
+    CLIFF_RADIUS,
 )
 
 from fle.eval.tasks import TaskABC
@@ -155,6 +157,14 @@ class ObsSpaces:
         }
     )
 
+    # Cliff position
+    CLIFF = spaces.Dict(
+        {
+            "x": SCORE_FLOAT,  # Can be negative coordinates
+            "y": SCORE_FLOAT,  # Can be negative coordinates
+        }
+    )
+
     # Technology structure
     TECHNOLOGY = spaces.Dict(
         {
@@ -284,6 +294,8 @@ class FactorioGymEnv(gym.Env):
                 "task_info": ObsSpaces.TASK_INFO,
                 # Character positions for all agents
                 "character_positions": spaces.Sequence(ObsSpaces.CHARACTER_POSITION),
+                # Cliffs near the character, nearest first (absent if unknown)
+                "cliffs": spaces.Sequence(ObsSpaces.CLIFF),
             }
         )
 
@@ -392,6 +404,16 @@ class FactorioGymEnv(gym.Env):
             pos = ns.player_location
             character_positions.append(CharacterPosition(agent_idx=i, x=pos.x, y=pos.y))
 
+        # Cliffs near this agent's character (None if they can't be read)
+        cliffs = None
+        try:
+            cliffs = [
+                {"x": p.x, "y": p.y}
+                for p in namespace._get_cliffs(radius=CLIFF_RADIUS, limit=CLIFF_LIMIT)
+            ]
+        except Exception as e:
+            logger.warning(f"Error getting cliffs: {e}")
+
         observation = Observation(
             raw_text=response.response if response else "",
             map_image=map_image,  # Base64 encoded PNG or empty string
@@ -407,6 +429,7 @@ class FactorioGymEnv(gym.Env):
             serialized_functions=serialized_functions,
             task_info=task_info,
             character_positions=character_positions,
+            cliffs=cliffs,
         )
 
         # Store observation for next step
