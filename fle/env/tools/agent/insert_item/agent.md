@@ -5,7 +5,7 @@ The `insert_item` tool allows you to insert items from your inventory into entit
 ## Basic Usage
 
 ```python
-insert_item(item: Prototype, target: Union[Entity, EntityGroup], quantity: int = 5) -> Entity
+insert_item(entity: Prototype, target: Union[Entity, EntityGroup], quantity: int = 5) -> Entity
 ```
 
 The function returns the updated target entity.

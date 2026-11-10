@@ -19,15 +19,13 @@ The function returns a list of Entity objects that match the specified criteria.
 
 ## Parameters
 
-- `prototype`: The Prototype of entities to find (optional)
+- `entities`: A set of Prototypes of the entities to find (optional)
 - `position`: Position to search around (default=player's current position)
-- `radius`: Search radius in tiles (default=20)
-- `name`: Exact entity name to search for (optional)
-- `type`: Entity type category to search for (optional)
+- `radius`: Search radius in tiles (default=1000)
 
 **Search Behavior**
 
-- If no prototype/name/type is specified, returns all entities within radius
+- If no entities are specified, returns all entities within radius
 - Returns empty list if no matching entities are found
 
 ## Examples

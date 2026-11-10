@@ -302,18 +302,18 @@ Battery - 15 per 60 seconds. Can only be produced by a chemical plant
 Crafting speeds for liquids
 Sulfuric acid - 3000 per 60 seconds, can only be gotten with a chemical plant
 Lubricant - 600 per 60 seconds. Can only be produced by a chemical plant
-Heavy oil - 300 per 60 seconds with advanced oil processing, 1080 per 60 seconds with Coal liquefaction
+Heavy oil - 300 per 60 seconds with advanced oil processing, 1080 per 60 seconds gross with Coal liquefaction (780 net: each cycle uses 25 heavy oil)
 Light oil - 540 per 60 seconds with advanced oil processing, 240 per 60 seconds with Coal liquefaction, 900 per 60 seconds with Heavy oil cracking
 Petroleum gas - 540 per 60 seconds with Basic oil processing, 660 per 60 seconds with advanced oil processing, 120 per 60 seconds with Coal liquefaction
 
 Raw resource extraction speeds
 Burner mining drill - Mines 15 resources per 60 seconds
 Electric mining drill - Mines 30 resources per 60 seconds
-Pumpjack - Extracts 600 crude oil per 60 seconds
+Pumpjack - Extracts 600 crude oil per 60 seconds at 100% yield (scales with the oil field's yield)
 
 Furnace smelting speed modifiers
 Stone furnace - 1 (Example: smelts 18.75 copper plates per 60 seconds)
-Electronic furnace - 2 (Example: smelts 37.5 copper plates per 60 seconds)
+Electric furnace - 2 (Example: smelts 37.5 copper plates per 60 seconds)
 Steel furnace - 2 (Example: smelts 37.5 copper plates per 60 seconds)
 
 Assembling machine crafting speed modifiers

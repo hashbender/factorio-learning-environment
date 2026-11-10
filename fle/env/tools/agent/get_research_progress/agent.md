@@ -129,5 +129,5 @@ except Exception as e:
 
 ```python
 if not get_research_progress(technology):
-    print("Technology already researched")
+    print("Technology already researched, or it has no science-pack cost (a trigger technology)")
 ```

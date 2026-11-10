@@ -25,7 +25,6 @@ class GetEntities(Tool):
         :param entities: Set of entity prototypes to filter by. If empty, all entities are returned.
         :param position: Position to search around. Can be a Position object or "player" for player's position.
         :param radius: Radius to search within.
-        :param player_only: If True, only player entities are returned, otherwise terrain features too.
         :return: Found entities
         """
 
