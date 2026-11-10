@@ -33,7 +33,7 @@ def game(instance):
         "assembling-machine-3": 10,
         "storage-tank": 3,
         "boiler": 3,
-        "steam-engine": 3,
+        "steam-engine": 4,
     }
     instance.reset()
     yield instance.namespace
