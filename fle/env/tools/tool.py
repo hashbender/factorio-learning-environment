@@ -31,6 +31,22 @@ class Tool(Controller):
 
         return x, y
 
+    def character_position(self) -> Union[Position, None]:
+        """Where the agent's character really is, read from the game (None if it can't be read).
+
+        ``game_state.player_location`` is a cached copy that only a finished ``move_to`` updates.
+        Anything else that moves the character (``connect_entities`` walks the route, a ``move_to``
+        cut short by a timeout, a reconnect that starts the cache at (0, 0)) leaves it stale."""
+        out = self.connection.rcon_client.send_command(
+            f"/sc local c = storage.agent_characters and storage.agent_characters[{self.player_index}]; "
+            "if c and c.valid then rcon.print(c.position.x .. ',' .. c.position.y) end"
+        )
+        try:
+            x, y = (float(v) for v in str(out).strip().split(","))
+        except (TypeError, ValueError):
+            return None
+        return Position(x=x, y=y)
+
     def get_error_message(self, response: str) -> str:
         """Remove the Lua source prefix without truncating the error itself."""
         if not isinstance(response, str):

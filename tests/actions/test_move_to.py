@@ -123,3 +123,18 @@ def test_player_location_is_current_within_a_program(game):
         "move_to(Position(x=10, y=10))\nprint(player_location)"
     )
     assert "x=10" in result and "y=10" in result, result
+
+
+def test_move_to_starts_from_the_character_not_a_stale_location(game):
+    """A stale player_location must not teleport the character to it before walking."""
+    game.move_to(Position(x=5, y=5))
+    # Move the character behind move_to's back, as connect_entities or a timeout does.
+    game.instance.rcon_client.send_command(
+        "/sc storage.agent_characters[1].teleport({x = 20, y = 5})"
+    )
+    ticks_before = game.instance.get_elapsed_ticks()
+    game.move_to(Position(x=25, y=5))
+    walked = game.instance.get_elapsed_ticks() - ticks_before
+    # 5 tiles from (20, 5); a path from the stale (5, 5) would be charged ~20 tiles.
+    assert walked < 12 / 0.15, walked
+    assert game.player_location.x == pytest.approx(25, abs=1)
