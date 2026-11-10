@@ -229,3 +229,10 @@ def test_reduction_is_uniform_across_types():
 def test_points_expand_runs():
     pts = _points("EAST (0.5..2.5 by 1, 3.5) (9.5, 1..3 by 2) +(1, 2)")
     assert sorted(pts) == [(0.5, 3.5), (1.5, 3.5), (2.5, 3.5), (9.5, 1.0), (9.5, 3.0)]
+
+
+def test_positions_diagonal_staircase():
+    stair = [(10.5 - i, 3.5 + i) for i in range(6)]
+    text = positions_text(stair + [(30.5, 0.5)])
+    assert text == "(30.5, 0.5) (5.5, 8.5)..(10.5, 3.5) step (1, -1)"
+    assert sorted(_points(text)) == sorted(stair + [(30.5, 0.5)])

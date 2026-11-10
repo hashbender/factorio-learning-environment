@@ -1164,10 +1164,14 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
         Per type: values shared by all are listed once; entities with identical
         state are one line with all their positions (evenly spaced runs written
-        as a..b by step); geometry is relative to the entity (+(dx, dy)). When
-        that is still too long, the largest types are summarised first (values
-        that vary a lot become "varies", then only status and positions, then
-        counts and the area), and the section says so."""
+        as a..b by step, diagonal lines as (x0, y0)..(x1, y1) step (1, dy));
+        geometry is relative to the entity (+(dx, dy)); 3+ differing groups are
+        a table (keys once as columns). When that is still too long, detail is
+        reduced one level at a time for all types alike (entity_compact levels:
+        per-belt contents as counts, values that vary a lot as ranges,
+        differing values other than connections / recipe / status left out,
+        status and positions, counts and area), and the section names each
+        type that was summarised and how. Entities are never left out."""
         from fle.env.gym_env.entity_compact import compact_section
 
         if not entities:
