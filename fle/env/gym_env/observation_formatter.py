@@ -258,6 +258,9 @@ class BasicObservationFormatter:
         self.include_cliffs = include_cliffs
         self.include_power = include_power
 
+    def _entities_section(self, entities: List[Any]) -> str:
+        return self.format_entities(entities)
+
     @staticmethod
     def format_inventory(inventory: List[Dict[str, Any]]) -> str:
         """Format inventory information"""
@@ -867,7 +870,7 @@ class BasicObservationFormatter:
             formatted_parts.append(inventory_str)
 
         if self.include_entities:
-            entities_str = self.format_entities(obs_dict.get("entities", []))
+            entities_str = self._entities_section(obs_dict.get("entities", []))
             formatted_parts.append(entities_str)
 
         if self.include_flows:
@@ -1010,15 +1013,65 @@ class TreeObservationFormatter(BasicObservationFormatter):
                       Defaults to empty set (include all keys).
     """
 
-    def __init__(self, excluded_keys: Optional[set] = None, **kwargs):
+    def __init__(
+        self,
+        excluded_keys: Optional[set] = None,
+        entity_budget_chars: Optional[int] = None,
+        **kwargs,
+    ):
         """Initialize the TreeObservationFormatter.
 
         Args:
             excluded_keys: Set of keys to exclude from output. Defaults to None (no exclusions).
+            entity_budget_chars: If set, the entity section is kept within this many
+                characters: the full listing when it fits, else the compact one
+                (format_entities_compact). None: always the full listing.
             **kwargs: Additional arguments passed to BasicObservationFormatter.
         """
         super().__init__(**kwargs)
         self.excluded_keys = excluded_keys or set()
+        self.entity_budget_chars = entity_budget_chars
+
+    def _entities_section(self, entities: List[Any]) -> str:
+        if self.entity_budget_chars is None:
+            return self.format_entities(entities)
+        return self.format_entities_within(entities, self.entity_budget_chars)
+
+    @classmethod
+    def format_entities_within(
+        cls,
+        entities: List[Any],
+        budget_chars: int,
+        excluded_keys: Optional[set] = None,
+    ) -> str:
+        """The full entity listing if it fits in budget_chars, else the compact one."""
+        full = cls.format_entities(entities, excluded_keys)
+        if len(full) <= budget_chars:
+            return full
+        return cls.format_entities_compact(entities, budget_chars, excluded_keys)
+
+    @classmethod
+    def format_entities_compact(
+        cls,
+        entities: List[Any],
+        budget_chars: int,
+        excluded_keys: Optional[set] = None,
+    ) -> str:
+        """Entity section within budget_chars, without dropping entities.
+
+        Per type: values shared by all are listed once; entities with identical
+        state are one line with all their positions (evenly spaced runs written
+        as a..b by step); geometry is relative to the entity (+(dx, dy)). When
+        that is still too long, the largest types are summarised first (values
+        that vary a lot become "varies", then only status and positions, then
+        counts and the area), and the section says so."""
+        from fle.env.gym_env.entity_compact import compact_section
+
+        if not entities:
+            return "### Entities\nNone found"
+        return compact_section(
+            cls._entity_groups(entities, excluded_keys), budget_chars
+        )
 
     @staticmethod
     def parse_entity_to_dict(entity_str: str) -> Dict[str, str]:
@@ -1908,21 +1961,10 @@ class TreeObservationFormatter(BasicObservationFormatter):
         return out
 
     @classmethod
-    def format_entities(
+    def _entity_groups(
         cls, entities: List[Any], excluded_keys: Optional[set] = None
-    ) -> str:
-        """Format entity information using nested trie-based compression.
-
-        Args:
-            entities: List of entity dicts (from Pydantic __dict__) or strings
-            excluded_keys: Optional set of keys to exclude from output
-
-        Returns:
-            Formatted string with entities grouped by type and compressed using nested trie structure
-        """
-        if not entities:
-            return "### Entities\nNone found"
-
+    ) -> Dict[str, List[Dict[str, str]]]:
+        """Entities as {type: [formatted key/value dicts]}."""
         excluded = (
             excluded_keys if excluded_keys is not None else cls.DEFAULT_EXCLUDED_KEYS
         )
@@ -1961,6 +2003,26 @@ class TreeObservationFormatter(BasicObservationFormatter):
                 if entity_name not in entity_groups:
                     entity_groups[entity_name] = []
                 entity_groups[entity_name].append(formatted)
+
+        return entity_groups
+
+    @classmethod
+    def format_entities(
+        cls, entities: List[Any], excluded_keys: Optional[set] = None
+    ) -> str:
+        """Format entity information using nested trie-based compression.
+
+        Args:
+            entities: List of entity dicts (from Pydantic __dict__) or strings
+            excluded_keys: Optional set of keys to exclude from output
+
+        Returns:
+            Formatted string with entities grouped by type and compressed using nested trie structure
+        """
+        if not entities:
+            return "### Entities\nNone found"
+
+        entity_groups = cls._entity_groups(entities, excluded_keys)
 
         # Format each entity group using nested trie structure
         group_strs = []
