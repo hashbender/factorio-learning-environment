@@ -722,9 +722,7 @@ class Inserter(StaticEntity, Electric):
 
 
 class TileMap(BaseModel):
-    """A text map of an area, one character per tile (get_map). print() it, or use
-    str(), to get the map text. rows are the grid rows without the axis labels,
-    top (y0) to bottom (y1); legend maps each symbol to what it stands for."""
+    """A text map of an area, one character per tile (get_map). print() it for the text."""
 
     text: str
     x0: int
@@ -766,15 +764,8 @@ class PlannedEntity(BaseModel):
 
 
 class ConnectDryRun(BaseModel):
-    """The answer of connect_entities(..., dry_run=True). Nothing was built.
-
-    route_found: the game found a route and every placement on it passed the build check.
-    entities / required: what would be placed (in route order) and the count per item.
-    in_inventory / missing / enough_in_inventory: what you hold of those items now.
-    belt_changes: belts already on the map that the route would turn.
-    reason / blocked_at: when no route was found, the message the real call would fail
-    with and the position it names.
-    Fields can also be read like a dict: plan["route_found"]."""
+    """The answer of connect_entities(..., dry_run=True); nothing was built. Fields
+    can also be read like a dict: plan["route_found"]."""
 
     route_found: bool
     number_of_entities_required: Optional[int] = None
@@ -821,8 +812,7 @@ class ConnectDryRun(BaseModel):
 
 
 class PlacementBlocker(BaseModel):
-    """One thing in the way of a placement (can_place_entity): an entity, at its
-    position, or a tile, at the tile's x and y."""
+    """One entity or tile in the way of a placement (can_place_entity)."""
 
     kind: str  # "entity" or "tile"
     name: str
@@ -836,13 +826,7 @@ class PlacementBlocker(BaseModel):
 
 class PlacementCheck(BaseModel):
     """The game's answer to "can this entity be built here?" (can_place_entity).
-    True in an `if` exactly when can_place is True.
-
-    fits: the game's build check for the entity at `position` facing `direction`.
-    reason / blocked_by: why not, when it does not fit (blocked_count: how many
-    entities and tiles are in the way; blocked_by lists up to five of them).
-    in_reach, in_inventory: what place_entity also needs.
-    can_place: fits, in reach and in the inventory, so place_entity would build it now."""
+    True in an `if` exactly when can_place is True."""
 
     entity: str
     position: Position

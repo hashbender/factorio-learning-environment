@@ -213,37 +213,29 @@ Common issues and solutions:
 
 `connect_entities(..., dry_run=True)` asks whether the connection can be built, without building it. It takes the same arguments as the real call and uses the same route search and the same build check for every placement.
 
-A dry run places nothing, turns nothing, uses no items, takes no game time and leaves you where you are. It needs none of the connecting items in your inventory. It does not raise when the route fails: the failure is in the result.
+A dry run places nothing, turns nothing, uses no items, takes no game time and leaves you where you are. It needs none of the connecting items in your inventory. Like the real call, it has no reach rule. It does not raise when the route fails: the result says why.
 
 ```python
 plan = connect_entities(Position(x=3.5, y=1.5), Position(x=3.5, y=6.5), Prototype.TransportBelt, dry_run=True)
 print(plan)
 # ConnectDryRun(route_found=True, required={'transport-belt': 6}, in_inventory={'transport-belt': 4}, missing={'transport-belt': 2}, entities=[transport-belt at (3.5, 1.5) DOWN, transport-belt at (3.5, 2.5) DOWN, ...])
+# or
+# ConnectDryRun(route_found=False, blocked_at=(3.5, 4.5), reason="Failed to connect {'TransportBelt'} from x=3.5 y=1.5 to x=3.5 y=6.5. Cannot connect: cannot place transport-belt at (3.5, 4.5): blocked by stone-furnace")
 ```
 
-The result is a `ConnectDryRun`. Its fields can be read as attributes (`plan.route_found`) or like a dict (`plan["route_found"]`):
+The `ConnectDryRun` has (as attributes, or like a dict: `plan["route_found"]`):
 
 - `route_found`: True when the game found a route and every placement on it passed the build check
-- `entities`: what would be placed, in route order, each with `name`, `position` and `direction` (None for entities without one); printing the result shows the first 40
-- `required`: the count of each item the route places, by name
-- `in_inventory`: how many of each of those you hold now
-- `missing`: the items you are short of, by name (empty when you hold enough); `enough_in_inventory` is True when it is empty
+- `entities`: what would be placed, in route order, each with `name`, `position` and `direction` (None for entities without one); printing shows the first 40
+- `required`, `in_inventory`, `missing`: per item name, how many the route places, how many you hold, and how many you are short of; `enough_in_inventory` is True when nothing is missing
 - `belt_changes`: belts already on the map that the route would turn (only possible with `allow_belt_changes=True`)
-- `reason`: when `route_found` is False, the message the real call would fail with
-- `blocked_at`: the position that message names as blocked, when it names one, else None
-- `number_of_entities_required`, `number_of_entities_available`: the total count to place (None when no route was found), and how many of the connecting item you hold
+- `reason`: when `route_found` is False, the message the real call would fail with; `blocked_at`: the position that message names, else None
+- `number_of_entities_required` (None when no route was found), `number_of_entities_available`: the total to place, and how many of the connecting item you hold
 
-```python
-plan = connect_entities(Position(x=3.5, y=1.5), Position(x=3.5, y=6.5), Prototype.Pipe, dry_run=True)
-print(plan)
-# ConnectDryRun(route_found=False, blocked_at=(3.5, 4.5), reason="Failed to connect {'Pipe'} from x=3.5 y=1.5 to x=3.5 y=6.5. Cannot connect: cannot place pipe at (3.5, 4.5): blocked by stone-furnace")
-```
+What a dry run covers:
 
-What a dry run does and does not cover:
-
-- The route is the one found on the map as it is now, with the items you hold now. With underground belts or pipes in the connection types, the real call uses as many underground sections as your inventory allows, and so does the dry run.
+- The route is found on the map as it is now, with the items you hold now: with underground belts or pipes among the connection types, it uses as many underground sections as your inventory allows, as the real call does.
 - With two waypoints, the dry run and the real call use the same route search on the same map.
 - With more than two waypoints, each leg is checked separately on the map as it is now, and a tile two legs share is listed once. The real call builds leg by leg and starts each later leg from what the leg before built, so its later legs can use other tiles than the dry run lists.
 - With electric poles, `entities` lists a pole at each step of the route that is not already covered; the real call stops placing poles once the target is connected and can add one pole at the target, so its count can differ.
 - With belts, the real call refuses a route that would change a belt already on the map unless `allow_belt_changes=True`. The dry run reports a belt at the start of the route that would be turned; other changes to existing belts are only found by the real call, which then builds nothing.
-- The real call has no reach rule (it walks the route), and neither has the dry run.

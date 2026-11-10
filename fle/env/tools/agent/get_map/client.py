@@ -75,20 +75,14 @@ class GetMap(Tool):
         right_bottom: Optional[Position] = None,
     ) -> TileMap:
         """
-        Get a text map of an area: one character per tile, with x and y on the axes and a legend.
-        Shows what is on each tile: entity footprints by name, belts and inserters with their
-        direction, pipes, electric poles, resources by type, water, cliffs, trees, rocks and you.
-        It reads the map only: it builds nothing, takes no game time and works at any distance.
-        Tiles in a part of the map that has not been generated or charted show as ?. It shows facts only.
-        The area is either position and radius, or the box between left_top and right_bottom.
-        The most one call returns is 64 x 64 tiles.
+        Get a text map of an area: one character per tile, with x and y on the axes and a legend
+        (entity footprints, belt and inserter directions, pipes, poles, resources, water, cliffs, trees).
+        Read only: builds nothing, takes no game time, works at any distance. At most 64 x 64 tiles.
         :param position: Centre of the map (default: your position)
-        :param radius: Tiles from the centre to each edge, 1 to 31 (default 15, a 31 x 31 map)
+        :param radius: Tiles from the centre to each edge, 1 to 31 (default 15)
         :param left_top: One corner of a box, instead of position and radius
-        :param right_bottom: The opposite corner of the box; both corner tiles are included
-        :example print(get_map(Position(x=0, y=0), radius=10))
-        :example print(get_map(left_top=Position(x=-20, y=5), right_bottom=Position(x=10, y=25)))
-        :return: TileMap. print() it for the map text: a header, the x of each column, one row per y, then the legend. Also .rows, .legend and .at(x, y), the character on a tile.
+        :param right_bottom: The opposite corner of the box
+        :return: TileMap; print() it for the map text
         """
         for name, value in (
             ("position", position),

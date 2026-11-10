@@ -71,14 +71,12 @@ class CanPlaceEntity(Tool):
     ) -> ent.PlacementCheck:
         """
         Asks the game whether an entity can be built at a position and direction, without building it.
-        Builds nothing, needs no item in the inventory, takes no game time and works at any distance.
+        Needs no item in the inventory, takes no game time and works at any distance.
         :param entity: Entity to check
         :param direction: Direction as for place_entity
         :param position: Position as for place_entity
-        :return: PlacementCheck. It is True in an `if` when place_entity would build the entity now
-            (it fits, is in reach and is in your inventory). Fields: fits (the game's build check),
-            reason and blocked_by (what is in the way, with positions), position (where it would be
-            built), in_reach, in_inventory.
+        :return: PlacementCheck: True in an `if` when place_entity would build it now; has fits,
+            reason and blocked_by (what is in the way, with positions)
         """
 
         assert isinstance(entity, Prototype)
