@@ -2,7 +2,11 @@
 
 import pytest
 
-from fle.env.game_types import Technology, closest_technology_names, technology_by_name
+from fle.env.game_types import Technology, technology_by_name
+from fle.env.technology_names import (
+    LEGACY_TECHNOLOGY_NAMES,
+    closest_technology_names,
+)
 
 # game.forces.player.technologies on a Factorio 2.0.73 headless server, base mod only
 FACTORIO_2_0_TECHNOLOGIES = (
@@ -208,8 +212,18 @@ FACTORIO_2_0_TECHNOLOGIES = (
 def test_every_factorio_2_technology_has_a_member():
     values = {tech.value for tech in Technology}
     assert len(FACTORIO_2_0_TECHNOLOGIES) == 196
-    assert set(FACTORIO_2_0_TECHNOLOGIES) == values
+    # every 2.0 technology, plus the 1.1 ones kept for old code
+    assert set(FACTORIO_2_0_TECHNOLOGIES) == values - LEGACY_TECHNOLOGY_NAMES
+    assert not set(FACTORIO_2_0_TECHNOLOGIES) & LEGACY_TECHNOLOGY_NAMES
     assert set(technology_by_name) == values
+
+
+def test_legacy_members_load_but_are_never_suggested():
+    assert Technology.BarrelFilling.value == "barrel-filling"
+    assert Technology.CharacterInventorySlots.value == "character-inventory-slots"
+    assert Technology.RocketControl.value == "rocket-control-unit"
+    for name in ("barrel-filling", "character-inventory-slots", "rocket-control"):
+        assert not set(closest_technology_names(name)) & LEGACY_TECHNOLOGY_NAMES
 
 
 def test_new_members_are_named_after_the_prototype():

@@ -1,6 +1,7 @@
 from typing import List, Optional, Union
 from pydantic import BaseModel
-from fle.env.game_types import Technology, closest_technology_names
+from fle.env.game_types import Technology
+from fle.env.technology_names import closest_technology_names
 from fle.env.tools import Tool
 
 

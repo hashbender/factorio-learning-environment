@@ -1,6 +1,7 @@
 from typing import Optional, List, Union
 from fle.env import Ingredient
-from fle.env.game_types import Technology, closest_technology_names
+from fle.env.game_types import Technology
+from fle.env.technology_names import closest_technology_names
 from fle.env.tools import Tool
 
 

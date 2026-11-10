@@ -479,6 +479,12 @@ class Technology(enum.Enum):
     LowDensityStructure = "low-density-structure"
     RocketSiloTechnology = "rocket-silo"
 
+    # Factorio 1.1 technologies that Factorio 2.0 does not have. Kept so that code
+    # naming them still loads; the game refuses them like any unknown technology.
+    BarrelFilling = "barrel-filling"
+    CharacterInventorySlots = "character-inventory-slots"
+    RocketControl = "rocket-control-unit"
+
     # Every other technology in Factorio 2.0 (base game), named after its prototype
     # name: bulk-inserter -> BulkInserter, research-speed-2 -> ResearchSpeed2.
     AdvancedCombinators = "advanced-combinators"
@@ -621,22 +627,6 @@ class Technology(enum.Enum):
 
 # Helper dictionary to look up technology by name string
 technology_by_name = {tech.value: tech for tech in Technology}
-
-
-def closest_technology_names(name: str, limit: int = 8) -> list[str]:
-    """Technology names closest to `name`, for error messages about unknown technologies.
-
-    Lists the same name written as an enum member (e.g. "BulkInserter"), then the levels
-    of a leveled technology (e.g. "research-speed" -> "research-speed-1", ...), then the
-    most similar names.
-    """
-    names = sorted(technology_by_name)
-    low = str(name).strip().lower()
-    key = low.replace("-", "").replace("_", "").replace(" ", "")
-    close = [t for t in names if t.replace("-", "") == key]
-    close += [t for t in names if t.startswith(low + "-")]
-    close += get_close_matches(low, names, n=5, cutoff=0.6)
-    return list(dict.fromkeys(close))[:limit]
 
 
 class Resource:
