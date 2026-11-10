@@ -701,6 +701,7 @@ def test_connect_steam_engine_battery(game):
 
     # Set up second row
     # Place second offshore pump below first one
+    game.move_to(offshore_pump1.position)  # within reach of where it goes
     offshore_pump2 = game.place_entity_next_to(
         Prototype.OffshorePump,
         reference_position=offshore_pump1.position,
@@ -709,6 +710,7 @@ def test_connect_steam_engine_battery(game):
     )
 
     # Place second boiler
+    game.move_to(offshore_pump2.position)  # within reach of where it goes
     boiler2 = game.place_entity_next_to(
         Prototype.Boiler,
         reference_position=offshore_pump2.position,
