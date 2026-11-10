@@ -125,7 +125,8 @@ storage.actions.render_simple = function(player_index, method, arg1, arg2, arg3,
     for _, pole in ipairs(electric_poles) do
         if pole.valid and pole.electric_network_id then
             local network_id = pole.electric_network_id
-            local supply_area = pole.prototype.supply_area_distance or 0
+            -- Factorio 2.0: supply_area_distance is a quality-dependent method
+            local supply_area = pole.prototype.get_supply_area_distance(pole.quality) or 0
 
             -- Get the area this pole covers
             local pole_data = {

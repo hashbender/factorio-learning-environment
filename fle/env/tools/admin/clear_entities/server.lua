@@ -11,18 +11,20 @@ storage.actions.clear_entities = function(player_index)
                 "ammo-turret", "electric-turret", "fluid-turret", "artillery-turret", "land-mine",
                 -- Circuit network
                 "arithmetic-combinator", "constant-combinator", "decider-combinator", "programmable-speaker",
+                "selector-combinator", "display-panel",
                 -- Production
                 "assembling-machine", "beacon", "boiler", "furnace", "generator", "lab",
-                "mining-drill", "offshore-pump", "rocket-silo",
+                "mining-drill", "offshore-pump", "rocket-silo", "burner-generator", "electric-energy-interface",
                 -- Storage
-                "container", "logistic-container", "linked-container", "infinity-container",
+                "container", "logistic-container", "linked-container", "infinity-container", "proxy-container",
                 -- Fluid handling
-                "pipe", "pipe-to-ground", "pump", "storage-tank", "infinity-pipe",
+                "pipe", "pipe-to-ground", "pump", "storage-tank", "infinity-pipe", "valve",
                 -- Logistics
-                "inserter", "transport-belt", "underground-belt", "splitter", "loader", "loader-1x1", "linked-belt",
-                -- Rail
-                "curved-rail", "straight-rail", "rail-chain-signal", "rail-signal", "train-stop",
-                "locomotive", "cargo-wagon", "fluid-wagon", "artillery-wagon",
+                "inserter", "transport-belt", "underground-belt", "splitter", "loader", "loader-1x1", "linked-belt", "lane-splitter",
+                -- Rail (Factorio 2.0 rail types; curved-rail is now curved-rail-a / -b)
+                "straight-rail", "curved-rail-a", "curved-rail-b", "half-diagonal-rail",
+                "legacy-straight-rail", "legacy-curved-rail", "rail-chain-signal", "rail-signal", "train-stop",
+                "locomotive", "cargo-wagon", "fluid-wagon", "artillery-wagon", "infinity-cargo-wagon",
                 -- Heat
                 "heat-interface", "heat-pipe",
                 -- Defense
@@ -32,7 +34,7 @@ storage.actions.clear_entities = function(player_index)
                 -- Vehicles
                 "car", "spider-vehicle",
                 -- Misc
-                "lamp", "market", "simple-entity-with-owner"
+                "lamp", "market", "simple-entity-with-owner", "simple-entity-with-force", "cargo-landing-pad"
             }
         }
 
