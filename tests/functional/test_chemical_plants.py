@@ -167,9 +167,12 @@ def test_chemical_plant_faces_requested_direction(base_game, direction):
         "/sc rcon.print(game.surfaces[1].find_entities_filtered"
         f"{{name = 'chemical-plant', position = {{{plant.position.x}, {plant.position.y}}}}}[1].direction)"
     )
-    assert int(response) == {
-        Direction.UP: 0,
-        Direction.RIGHT: 4,
-        Direction.DOWN: 8,
-        Direction.LEFT: 12,
-    }[direction]
+    assert (
+        int(response)
+        == {
+            Direction.UP: 0,
+            Direction.RIGHT: 4,
+            Direction.DOWN: 8,
+            Direction.LEFT: 12,
+        }[direction]
+    )
