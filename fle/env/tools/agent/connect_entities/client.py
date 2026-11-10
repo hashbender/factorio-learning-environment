@@ -212,6 +212,10 @@ class ConnectEntities(Tool):
 
         # Sleep for the appropriate real-world time based on elapsed ticks (only for non-dry runs)
         if not dry_run:
+            # Building walks the character along the route; keep player_location true.
+            here = self.character_position()
+            if here is not None:
+                self.game_state.player_location = here
             ticks_after = self.game_state.instance.get_elapsed_ticks()
             ticks_added = ticks_after - ticks_before
             if ticks_added > 0:

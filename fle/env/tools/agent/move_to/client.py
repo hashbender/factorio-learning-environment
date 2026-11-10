@@ -34,10 +34,19 @@ class MoveTo(Tool):
         )
         nposition = Position(x=x, y=y)
 
-        path_handle = self.request_path(
-            start=Position(
+        # The path must start where the character is. move_to teleports the character along
+        # the path from its first point, so a stale start moved it there for free and then
+        # charged the walk from there.
+        start = self.character_position()
+        if start is None:
+            start = Position(
                 x=self.game_state.player_location.x, y=self.game_state.player_location.y
-            ),
+            )
+        else:
+            self.game_state.player_location = start
+
+        path_handle = self.request_path(
+            start=start,
             finish=nposition,
             allow_paths_through_own_entities=True,
             resolution=-1,
