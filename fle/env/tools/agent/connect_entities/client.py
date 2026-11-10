@@ -533,8 +533,9 @@ class ConnectEntities(Tool):
         return (response or "").strip() == "placed"
 
     def _is_unpowered(self, entity: Entity) -> bool:
-        """True if the entity runs on electricity and is not connected to an
-        electric network (burner and unpowered entities are never 'unpowered')."""
+        """True if the entity runs on electricity and is on no electric network (no pole's
+        supply area covers it). A network without a generator still counts: the game's
+        is_connected_to_electric_network() is false until there is power."""
         name = getattr(entity, "name", None)
         if not isinstance(name, str) or not _PROTOTYPE_NAME.fullmatch(name):
             return False
@@ -543,8 +544,7 @@ class ConnectEntities(Tool):
             f"/sc local e = game.surfaces[1].find_entities_filtered{{position = {{{x}, {y}}}, "
             f"name = '{name}', limit = 1}}[1]; "
             "if not e or not e.prototype.electric_energy_source_prototype then rcon.print('n/a') "
-            "else local ok, v = pcall(function() return e.is_connected_to_electric_network() end); "
-            "rcon.print(ok and (v and 'yes' or 'no') or 'n/a') end"
+            "else rcon.print(e.electric_network_id and 'yes' or 'no') end"
         )
         return (response or "").strip() == "no"
 
