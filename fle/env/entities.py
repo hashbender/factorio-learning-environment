@@ -510,6 +510,16 @@ class Ingredient(BaseModel):
     type: Optional[Literal["fluid", "item"]] = None
 
 
+class AvailableTechnology(BaseModel):
+    """A technology that can be researched now (get_available_technologies)."""
+
+    name: str
+    ingredients: List[Ingredient] = []  # science packs per research unit
+    unit_count: int = 0  # research units needed
+    unit_time: float = 0  # seconds per unit at lab research speed 1
+    trigger: Optional[str] = None  # game action that completes a trigger technology
+
+
 class Product(Ingredient):
     probability: Optional[float] = 1
 

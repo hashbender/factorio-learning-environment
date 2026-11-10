@@ -1,17 +1,7 @@
-from typing import List, Optional
+from typing import List
 
-from pydantic import BaseModel
-
+from fle.env.entities import AvailableTechnology, Ingredient
 from fle.env.tools import Tool
-from fle.env.tools.agent.set_research.client import Ingredient
-
-
-class AvailableTechnology(BaseModel):
-    name: str
-    ingredients: List[Ingredient] = []  # science packs per research unit
-    unit_count: int = 0  # research units needed
-    unit_time: float = 0  # seconds per unit at lab research speed 1
-    trigger: Optional[str] = None  # game action that completes a trigger technology
 
 
 def _as_list(value) -> list:
