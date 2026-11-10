@@ -835,25 +835,49 @@ storage.utils.serialize_entity = function(entity)
     --game.print(serpent.line(entity.get_inventory(defines.inventory.turret_ammo)))
     serialized.warnings = storage.utils.get_issues(entity)
 
-    local inventory_types = {
-        {name = "fuel", define = defines.inventory.fuel},
-        {name = "burnt_result", define = defines.inventory.burnt_result},
-        {name = "inventory", define = defines.inventory.chest},
-        {name = "furnace_source", define = defines.inventory.furnace_source},
-        {name = "furnace_result", define = defines.inventory.furnace_result},
-        {name = "furnace_modules", define = defines.inventory.furnace_modules},
-        {name = "assembling_machine_input", define = defines.inventory.assembling_machine_input},
-        {name = "assembling_machine_output", define = defines.inventory.assembling_machine_output},
-        {name = "assembling_machine_modules", define = defines.inventory.assembling_machine_modules},
-        {name = "lab_input", define = defines.inventory.lab_input},
-        {name = "lab_modules", define = defines.inventory.lab_modules},
-        {name = "turret_ammo", define = defines.inventory.turret_ammo}
+    -- Factorio 2.0 inventory indices overlap (fuel = chest = turret_ammo = 1,
+    -- furnace_source = assembling_machine_input = lab_input = 2, furnace_result =
+    -- assembling_machine_output = lab_modules = 3), so reading every define gives
+    -- copies under wrong names. Name each inventory the entity really has after
+    -- the game's own name (get_inventory_name), using FLE's field names where
+    -- the entity classes expect them. Other inventories are listed only when not
+    -- empty.
+    local crafter_names = {
+        crafter_input = "assembling_machine_input",
+        crafter_output = "assembling_machine_output",
+        crafter_modules = "assembling_machine_modules",
     }
-
-    for _, inv_type in ipairs(inventory_types) do
-        local inventory = entity.get_inventory(inv_type.define)
+    local fle_inventory_names = {
+        ["furnace"] = {
+            crafter_input = "furnace_source",
+            crafter_output = "furnace_result",
+            crafter_modules = "furnace_modules",
+        },
+        ["assembling-machine"] = crafter_names,
+        ["rocket-silo"] = crafter_names,
+        ["container"] = {chest = "inventory"},
+        ["logistic-container"] = {chest = "inventory"},
+        ["cargo-wagon"] = {cargo_wagon = "inventory"},
+    }
+    local always_listed = {
+        fuel = true, burnt_result = true, inventory = true, turret_ammo = true,
+        lab_input = true, lab_modules = true,
+        furnace_source = true, furnace_result = true, furnace_modules = true,
+        assembling_machine_input = true, assembling_machine_output = true,
+        assembling_machine_modules = true,
+    }
+    local renames = fle_inventory_names[entity.type] or {}
+    for index = 1, entity.get_max_inventory_index() do
+        local inventory = entity.get_inventory(index)
         if inventory then
-            serialized[inv_type.name] = storage.utils.get_contents_compat(inventory)
+            local inv_name = entity.get_inventory_name(index)
+            if inv_name then
+                inv_name = renames[inv_name] or inv_name
+                local contents = storage.utils.get_contents_compat(inventory)
+                if always_listed[inv_name] or next(contents) ~= nil then
+                    serialized[inv_name] = contents
+                end
+            end
         end
     end
 
