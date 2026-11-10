@@ -590,6 +590,7 @@ class ConnectEntities(Tool):
         entity_sizes = [1.5, 1, 2.5, 2, 0.5, 0.25]
 
         result = None
+        last_handle = None
         for size in entity_sizes:
             # The path is computed asynchronously by the game, a little each tick, so
             # a fixed wall-clock sleep is too short at low game speeds (at 1x, 50 ms
@@ -606,6 +607,7 @@ class ConnectEntities(Tool):
                 if state != "busy":
                     break
 
+            last_handle = path_handle
             if state == "not_found":
                 # The game found no way through for this box size: try the next one
                 continue
@@ -626,8 +628,22 @@ class ConnectEntities(Tool):
             if result.is_success:
                 return result
 
-        if result is None:
-            raise Exception("No path found")
+        if result is None and last_handle is not None:
+            # No box size had a path. Let the server report it for the last request
+            # (e.g. "Failed to find a path"), which callers use to recognise
+            # entities that are already connected.
+            response, _ = self.execute(
+                self.player_index,
+                source_pos.x,
+                source_pos.y,
+                target_pos.x,
+                target_pos.y,
+                last_handle,
+                ",".join(connection_prototypes),
+                dry_run,
+                num_available,
+            )
+            result = PathResult(response)
         return result  # Return last failed result if all attempts fail
 
     def _create_connection(
