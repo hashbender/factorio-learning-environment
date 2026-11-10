@@ -1443,6 +1443,66 @@ class TreeObservationFormatter(BasicObservationFormatter):
         # "electrical_id",
     }
 
+    # At most this many positions are listed for a pipe group or a power
+    # network; the rest are counted as "(N more)"
+    GROUP_POSITIONS_SHOWN = 6
+
+    @staticmethod
+    def _amount(v: Any) -> str:
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return "?"
+        return f"{v:.0f}" if v >= 10 or v == int(v) else f"{v:.1f}"
+
+    @classmethod
+    def _compact_positions(cls, members: list) -> str:
+        """First GROUP_POSITIONS_SHOWN member positions, then "(N more)"."""
+        shown = []
+        for m in members[: cls.GROUP_POSITIONS_SHOWN]:
+            pos = getattr(m, "position", None)
+            if pos is None and isinstance(m, dict):
+                pos = m.get("position")
+            x = getattr(pos, "x", None) if pos is not None else None
+            y = getattr(pos, "y", None) if pos is not None else None
+            if isinstance(pos, dict):
+                x, y = pos.get("x"), pos.get("y")
+            if x is None or y is None:
+                continue
+            shown.append(f"({float(x):.1f}, {float(y):.1f})")
+        more = len(members) - min(len(members), cls.GROUP_POSITIONS_SHOWN)
+        if more > 0:
+            shown.append(f"({more} more)")
+        return "[" + ", ".join(shown) + "]"
+
+    @classmethod
+    def _compact_fluid_power(cls, key: str, value: Any) -> Optional[str]:
+        """Compact text for fluidboxes and pipe groups, or None to format normally.
+
+        fluid_box (one entry per fluidbox holding fluid):
+            [water 200/200 input, steam 200/200 165C output]
+        pipes (a pipe group's pipes): their positions, at most
+            GROUP_POSITIONS_SHOWN, then "(N more)".
+        """
+        if key == "fluid_box" and isinstance(value, list):
+            boxes = []
+            for box in value:
+                if not isinstance(box, dict) or not box.get("name"):
+                    continue
+                text = f"{str(box['name']).strip(chr(34))} {cls._amount(box.get('amount'))}"
+                if box.get("capacity"):
+                    text += f"/{cls._amount(box['capacity'])}"
+                temperature = box.get("temperature")
+                if isinstance(temperature, (int, float)) and temperature != 15:
+                    text += f" {temperature:.0f}C"
+                if box.get("type"):
+                    text += f" {str(box['type']).strip(chr(34))}"
+                boxes.append(text)
+            return "[" + ", ".join(boxes) + "]"
+        if key == "pipes" and isinstance(value, list):
+            return cls._compact_positions(value)
+        return None
+
     @classmethod
     def format_value_from_object(cls, key: str, value: Any) -> str:
         """Format a Python object value for display.
@@ -1459,6 +1519,11 @@ class TreeObservationFormatter(BasicObservationFormatter):
         # Handle None
         if value is None:
             return "None"
+
+        # Fluid and power fields in compact, factual form
+        compact = cls._compact_fluid_power(key, value)
+        if compact is not None:
+            return compact
 
         # Handle Position objects
         if isinstance(value, Position):

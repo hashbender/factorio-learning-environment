@@ -93,14 +93,23 @@ def _construct_group(
         entities[0], Pipe
     ):
         entities = _deduplicate_entities(entities)
-        if any([pipe.contents > 0 and pipe.flow_rate > 0 for pipe in entities]):
-            status = EntityStatus.WORKING
-        elif all([pipe.contents == 0 for pipe in entities]):
-            status = EntityStatus.EMPTY
-        elif all([pipe.flow_rate == 0 for pipe in entities]):
-            status = EntityStatus.FULL_OUTPUT
+        # Factorio 2.0 has no per-pipe flow reading (flow_rate was always 0, so
+        # every filled group used to read FULL_OUTPUT): report what is in the
+        # pipes instead. EMPTY when no pipe holds fluid.
+        amount = sum(p.amount or 0 for p in entities)
+        capacities = [p.capacity for p in entities if p.capacity]
+        fluids = [p.fluid for p in entities if p.fluid]
+        status = EntityStatus.NORMAL if amount > 0 else EntityStatus.EMPTY
 
-        return PipeGroup(pipes=entities, id=id, status=status, position=position)
+        return PipeGroup(
+            pipes=entities,
+            id=id,
+            status=status,
+            position=position,
+            fluid=fluids[0] if fluids else None,
+            amount=amount,
+            capacity=sum(capacities) if capacities else None,
+        )
     elif prototype in (
         Prototype.SmallElectricPole,
         Prototype.BigElectricPole,

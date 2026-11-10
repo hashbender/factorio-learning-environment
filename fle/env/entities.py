@@ -878,6 +878,7 @@ class Pump(FluidHandler, Electric):
 
     input_position: Optional[Position] = None  # Where fluid enters the pump
     output_position: Optional[Position] = None  # Where fluid leaves the pump
+    flow_rate: Optional[float] = None  # Fluid pumped in the last tick, per second
     _height: float = 1
     _width: float = 2
 
@@ -886,6 +887,7 @@ class OffshorePump(FluidHandler):
     """A pump that extracts water from water tiles.
     Can be used in power generation setups and to supply water to chemical plants and oil refineries."""
 
+    flow_rate: Optional[float] = None  # Water pumped in the last tick, per second
     _height: float = 1
     _width: float = 2
     pass
@@ -984,12 +986,20 @@ class Lab(Entity, Electric):
 
 
 class Pipe(Entity):
-    """A pipe for fluid transport"""
+    """A pipe for fluid transport.
+
+    amount / capacity: the fluid in this pipe and how much it holds.
+    contents: the fluid in the pipe's whole segment (fluidbox_id), including the
+    fluidboxes of machines connected to it. flow_rate is always None: Factorio
+    2.0 has no per-pipe flow reading."""
 
     fluidbox_id: Optional[int] = None
     flow_rate: Optional[float] = None
     contents: Optional[float] = None
     fluid: Optional[str] = None
+    amount: Optional[float] = None
+    capacity: Optional[float] = None
+    temperature: Optional[float] = None
     _height: float = 1
     _width: float = 1
 
@@ -1048,16 +1058,23 @@ class BeltGroup(EntityGroup):
 
 
 class PipeGroup(EntityGroup):
-    """A connected group of pipes."""
+    """A connected group of pipes (one fluid segment, id = its fluidbox_id).
+
+    fluid: the fluid in the pipes; amount / capacity: the total in these pipes
+    and how much they hold."""
 
     pipes: List[Pipe]
     name: str = "pipe-group"
+    fluid: Optional[str] = None
+    amount: Optional[float] = None
+    capacity: Optional[float] = None
 
     def __repr__(self) -> str:
-        pipe_summary = f"[{len(self.pipes)} pipes]"
         fluid_suffix = ""
-        if self.pipes and self.pipes[0].fluid is not None and self.pipes[0].fluid != "":
-            fluid_suffix = f"fluid={self.pipes[0].fluid} "
+        if self.fluid:
+            fluid_suffix = f"fluid={self.fluid} "
+        if self.capacity:
+            fluid_suffix += f"amount={self.amount or 0:.0f}/{self.capacity:.0f} "
         positions = [f"(x={p.position.x},y={p.position.y})" for p in self.pipes]
         if len(positions) > 6:
             positions = positions[:3] + ["..."] + positions[-3:]
