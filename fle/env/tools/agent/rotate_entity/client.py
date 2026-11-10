@@ -1,7 +1,6 @@
 from fle.env.entities import (
     Entity,
     Direction as DirectionA,
-    AssemblingMachine,
 )  # We have 2 Direction objects to avoid circular deps
 from fle.env import DirectionInternal
 from fle.env.game_types import prototype_by_name
@@ -89,10 +88,8 @@ class RotateEntity(Tool):
             )
 
         if object.direction.value != direction.value:
-            if isinstance(entity, AssemblingMachine):
-                raise Exception(
-                    f"Could not rotate {entity.name}. Set the recipe first."
-                )
-            raise Exception(f"Could not rotate {entity.name}.")
+            raise Exception(
+                f"Could not rotate {entity.name}: it still faces {object.direction.name}."
+            )
 
         return object
