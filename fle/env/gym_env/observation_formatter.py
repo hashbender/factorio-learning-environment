@@ -12,6 +12,12 @@ POWER_KEYS = {"production", "consumption", "demand", "generator_max"}
 ENERGY_KEYS = {"accumulator_charge", "accumulator_capacity"}
 # At most this many electric networks are listed in the Power section
 POWER_NETWORKS_SHOWN = 10
+# Machine Status section: at most this many lines (machine and recipe), each with
+# at most MACHINE_STATES_SHOWN states; the rest are counted as "(N more)"
+MACHINE_LINES_SHOWN = 20
+MACHINE_STATES_SHOWN = 4
+# Entity types listed in the Machine Status section
+MACHINE_TYPES = {"assembling-machine", "rocket-silo", "furnace", "lab", "mining-drill"}
 
 
 def _si(value: float, unit: str) -> str:
@@ -242,6 +248,7 @@ class BasicObservationFormatter:
         include_character_positions: bool = True,
         include_cliffs: bool = True,
         include_power: bool = True,
+        include_machine_status: bool = True,
     ):
         """Initialize the formatter with flags for which fields to include"""
         self.include_inventory = include_inventory
@@ -257,6 +264,7 @@ class BasicObservationFormatter:
         self.include_character_positions = include_character_positions
         self.include_cliffs = include_cliffs
         self.include_power = include_power
+        self.include_machine_status = include_machine_status
 
     def _entities_section(self, entities: List[Any]) -> str:
         return self.format_entities(entities)
@@ -855,6 +863,59 @@ class BasicObservationFormatter:
             lines.append(f"- ({more} more networks)")
         return "\n".join(lines)
 
+    @staticmethod
+    def format_machine_status(entities: List[Any]) -> str:
+        """One line per machine type and recipe: how many machines are in each
+        status, with the status detail (the game's reason) when there is one.
+        Counts and the game's reasons only, sorted by name.
+
+        Example:
+        ### Machine Status
+        - assembling-machine-1 [iron-gear-wheel]: 3 (2 working, 1 missing iron-plate (0 of 1 per craft))
+        """
+
+        def attr(obj: Any, key: str) -> Any:
+            if isinstance(obj, dict):
+                return obj.get(key, obj.get("_" + key))
+            return getattr(obj, key, None)
+
+        groups: Dict[str, Dict[str, int]] = {}
+        for e in entities or []:
+            if not isinstance(e, dict):
+                continue
+            etype = attr(e, "type")
+            if etype not in MACHINE_TYPES:
+                continue
+            name = str(attr(e, "name") or "?")
+            if etype in ("assembling-machine", "rocket-silo"):
+                recipe = attr(e, "recipe")
+                recipe_name = attr(recipe, "name") if recipe else None
+                if recipe_name is None and isinstance(recipe, str):
+                    recipe_name = recipe
+                name += f" [{recipe_name or 'no recipe'}]"
+            status = attr(e, "status")
+            status = str(getattr(status, "value", status) or "unknown")
+            state = attr(e, "status_detail") or status.replace("_", " ")
+            counts = groups.setdefault(name, {})
+            counts[state] = counts.get(state, 0) + 1
+        if not groups:
+            return ""
+
+        lines = ["### Machine Status"]
+        for name in sorted(groups)[:MACHINE_LINES_SHOWN]:
+            counts = groups[name]
+            states = sorted(counts, key=lambda k: (k != "working", k))
+            parts = [f"{counts[k]} {k}" for k in states[:MACHINE_STATES_SHOWN]]
+            hidden = states[MACHINE_STATES_SHOWN:]
+            if hidden:
+                n = sum(counts[k] for k in hidden)
+                parts.append(f"({n} more)")
+            lines.append(f"- {name}: {sum(counts.values())} ({', '.join(parts)})")
+        more = len(groups) - MACHINE_LINES_SHOWN
+        if more > 0:
+            lines.append(f"- ({more} more)")
+        return "\n".join(lines)
+
     def format(
         self, observation: Observation, last_message_timestamp: float = 0.0
     ) -> FormattedObservation:
@@ -872,6 +933,11 @@ class BasicObservationFormatter:
         if self.include_entities:
             entities_str = self._entities_section(obs_dict.get("entities", []))
             formatted_parts.append(entities_str)
+
+        if self.include_machine_status:
+            machine_str = self.format_machine_status(obs_dict.get("entities", []))
+            if machine_str:
+                formatted_parts.append(machine_str)
 
         if self.include_flows:
             flows_str = self.format_flows(obs_dict.get("flows", {}))
