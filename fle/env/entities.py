@@ -776,8 +776,13 @@ class FluidHandler(StaticEntity):
 class AdvancedAssemblingMachine(FluidHandler, AssemblingMachine):
     """A second and third tier assembling machine that can handle fluids.
     Requires power to operate
-    A recipe first needs to be set and then the input fluid source can be connected with pipes"""
+    A recipe first needs to be set and then the input fluid source can be connected with pipes.
+    Its fluid boxes are only active while the recipe uses a fluid: connection_points lists the
+    tile a pipe must occupy for each active port (inputs, then outputs), and
+    input_connection_points / output_connection_points give the same tiles with their fluid"""
 
+    input_connection_points: List[IndexedPosition] = []
+    output_connection_points: List[IndexedPosition] = []
     _height: float = 3
     _width: float = 3
 

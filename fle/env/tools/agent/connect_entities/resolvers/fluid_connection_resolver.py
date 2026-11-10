@@ -1,6 +1,7 @@
 from typing import Union, Tuple, List, Optional
 
 from fle.env import (
+    AdvancedAssemblingMachine,
     FluidHandler,
     Position,
     Entity,
@@ -244,6 +245,9 @@ class FluidConnectionResolver(Resolver):
                     for pos in source.connection_points
                 ]
 
+            # an assembling machine whose recipe makes a fluid: only its output ports
+            case AdvancedAssemblingMachine() if source.output_connection_points:
+                source_positions = source.output_connection_points
             case FluidHandler():
                 liquid = [fluid["name"] for fluid in source.fluid_box]
                 source_liquid = liquid[0] if liquid else ""
@@ -351,6 +355,18 @@ class FluidConnectionResolver(Resolver):
                 ]
             case MultiFluidHandler():
                 target_positions = target.input_connection_points
+            # an assembling machine's fluid boxes are only active with a fluid recipe
+            case AdvancedAssemblingMachine() if not target.connection_points:
+                raise Exception(
+                    f"{target.prototype} at {target.position} has no fluid connections: an assembling machine's fluid boxes are only active while its recipe uses a fluid"
+                )
+            # an assembling machine whose recipe takes a fluid: only its input ports
+            # (any fluid may be piped in; the machine's fluid box filters it)
+            case AdvancedAssemblingMachine() if target.input_connection_points:
+                target_positions = [
+                    IndexedPosition(x=pos.x, y=pos.y, type="")
+                    for pos in target.input_connection_points
+                ]
             case FluidHandler():
                 target_positions = [
                     IndexedPosition(x=pos.x, y=pos.y, type="")

@@ -12,7 +12,7 @@ from fle.env.entities import (
     Position,
     ResourcePatch,
 )
-from fle.env.game_types import Prototype, Resource
+from fle.env.game_types import Prototype, RecipeName, Resource
 
 
 @pytest.fixture()
@@ -502,9 +502,21 @@ def test_connect_pipes_to_advanced_assembler(game):
     assembler_2 = game.place_entity(
         Prototype.AssemblingMachine2, Direction.UP, Position(x=0, y=0)
     )
-    pipes = game.connect_entities(position_1, assembler_2, Prototype.Pipe)
+    # Its fluid boxes are only active while the recipe uses a fluid
+    assert assembler_2.connection_points == []
+    try:
+        game.connect_entities(position_1, assembler_2, Prototype.Pipe)
+        assert False, "connected to an assembler with no fluid recipe"
+    except Exception as e:
+        assert "no fluid connections" in str(e)
 
-    assert len(pipes.pipes) == 13
+    assembler_2 = game.set_entity_recipe(assembler_2, RecipeName.FillWaterBarrel)
+    assert len(assembler_2.input_connection_points) == 1
+    assert assembler_2.input_connection_points[0].type == "water"
+    pipes = game.connect_entities(position_1, assembler_2, Prototype.Pipe)
+    assert pipes.pipes
+    end = assembler_2.input_connection_points[0]
+    assert any(p.position.is_close(end, tolerance=0.01) for p in pipes.pipes)
 
 
 def test_fail_connect_pipes_with_mixed_connection_types(game):
