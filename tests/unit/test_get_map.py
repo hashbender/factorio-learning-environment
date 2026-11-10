@@ -43,3 +43,10 @@ def test_server_error_is_reported():
     with pytest.raises(Exception) as e:
         _tool('[string "x"]:3: "boom"')(radius=3)
     assert str(e.value) == "Could not get map: boom"
+
+
+def test_prints_as_a_grid():
+    resp = {"x0": 0, "x1": 1, "y0": 0, "y1": 1, "rows": [".@", ".."], "legend": []}
+    out = _tool(resp)(radius=1)
+    assert "\\n" not in repr((out,))
+    assert repr(out) == str(out)

@@ -13,6 +13,14 @@ def _as_list(value: Any) -> list:
     return list(value or [])
 
 
+class MapText(str):
+    """The map text. print() logs values with repr(), which would show a plain
+    string's newlines as \\n; this one prints as the grid itself."""
+
+    def __repr__(self) -> str:
+        return str.__str__(self)
+
+
 class GetMap(Tool):
     def __init__(self, connection, game_state):
         super().__init__(connection, game_state)
@@ -54,4 +62,4 @@ class GetMap(Tool):
         lines.append("Legend:")
         for item in _as_list(response.get("legend")):
             lines.append(f"  {item['symbol']} {item['text']}")
-        return "\n".join(lines)
+        return MapText("\n".join(lines))
