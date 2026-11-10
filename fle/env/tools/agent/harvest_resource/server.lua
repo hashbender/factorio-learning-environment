@@ -17,6 +17,34 @@ local function update_production_stats(force, entity_name, amount)
         end
     end
 
+-- Mine a rock, stump or other non-resource entity the way a player does: the game
+-- rolls each product's amount (amount_min..amount_max, probability), so products
+-- without a fixed `amount` (huge-rock, big-sand-rock) give the vanilla yield.
+-- Items go into the character; whatever does not fit is spilled at its feet.
+-- Returns the number of items received.
+local function mine_into_character(entity, player)
+    local temp = game.create_inventory(16)
+    local mined = entity.mine({inventory=temp, ignore_minable=false, raise_destroyed=true})
+    local received = 0
+    if mined then
+        for name, count in pairs(storage.utils.get_contents_compat(temp)) do
+            if count > 0 then
+                local inserted = player.insert({name=name, count=count})
+                if inserted < count then
+                    player.surface.spill_item_stack({
+                        position=player.position,
+                        stack={name=name, count=count - inserted},
+                    })
+                end
+                update_production_stats(player.force, name, count)
+                received = received + count
+            end
+        end
+    end
+    temp.destroy()
+    return received
+end
+
 local function get_entity_yield(entity)
     local yield = 0
     if entity.valid and entity.minable then
@@ -370,15 +398,20 @@ function harvest(entities, count, from_position, player)
                 storage.elapsed_ticks = storage.elapsed_ticks + calculate_mining_ticks(entity)
             end
 
-            local products = entity.prototype.mineable_properties.products
-            for _, product in pairs(products) do
-                local amount = product.amount or 1
-                yield = yield + amount
-                entity.mine({ignore_minable=false, raise_destroyed=true})
-                player.insert({name=product.name, count=amount})
-                update_production_stats(player.force, product.name, amount)
+            if entity.type ~= "resource" then
+                yield = yield + mine_into_character(entity, player)
                 has_mined = true
-                if yield >= count then break end
+            else
+                local products = entity.prototype.mineable_properties.products
+                for _, product in pairs(products) do
+                    local amount = product.amount or 1
+                    yield = yield + amount
+                    entity.mine({ignore_minable=false, raise_destroyed=true})
+                    player.insert({name=product.name, count=amount})
+                    update_production_stats(player.force, product.name, amount)
+                    has_mined = true
+                    if yield >= count then break end
+                end
             end
             if yield >= count then break end
         end
@@ -440,16 +473,7 @@ local function harvest_simple_entities(entities, count, from_position, player)
                 storage.elapsed_ticks = storage.elapsed_ticks + calculate_mining_ticks(entity)
             end
 
-            local products = entity.prototype.mineable_properties.products
-            for _, product in pairs(products) do
-                local amount = product.amount or 1
-                yield = yield + amount
-                entity.mine({ignore_minable=false, raise_destroyed=true})
-                player.insert({name=product.name, count=amount})
-                update_production_stats(player.force, product.name, amount)
-
-                if yield >= count then break end
-            end
+            yield = yield + mine_into_character(entity, player)
             if yield >= count then break end
         end
     end
