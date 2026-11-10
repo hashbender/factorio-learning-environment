@@ -51,3 +51,7 @@ else:
 
 - Offshore pumps are placed on land at the edge of water (Factorio 2.0), not on water tiles
 - Some entities have specific placement requirements
+
+4. Direction
+
+- The check is for the entity in the given direction, the same orientation `place_entity` builds for that direction
