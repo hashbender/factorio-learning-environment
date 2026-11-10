@@ -561,7 +561,8 @@ storage.actions.place_entity_next_to = function(player_index, entity, ref_x, ref
         error("Failed to create entity " .. entity .. " at position " .. serpent.line(new_position))
     end
 
-    local placement_info = storage.utils.serialize_entity(new_entity)
+    local placement_info = storage.utils.note_dropped_direction(
+        storage.utils.serialize_entity(new_entity), new_entity, orientation)
 
     -- Consume the item; if it can't be removed, undo the placement
     if player.remove_item{name = entity, count = 1} < 1 then

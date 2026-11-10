@@ -287,7 +287,9 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
                     if have_built then
                         player.remove_item{name = item_name, count = 1}
                         -- game.print("Placed " .. entity .. " at " .. new_position.x .. ", " .. new_position.y)
-                        return storage.actions.get_entity(player_index, entity, new_position.x, new_position.y)
+                        return storage.utils.note_dropped_direction(
+                            storage.actions.get_entity(player_index, entity, new_position.x, new_position.y),
+                            have_built, entity_direction)
                     end
                 else
                     error("\"Could not find a suitable position to place " .. entity .. " near the target location.\"")
@@ -406,7 +408,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
             local entities = player.surface.find_entities_filtered{area = target_area, name = entity}
 
             if #entities > 0 then
-                return storage.utils.serialize_entity(entities[1])
+                return storage.utils.note_dropped_direction(storage.utils.serialize_entity(entities[1]), have_built, entity_direction)
             end
             error("\"Could not find placed entity\"")
         else
