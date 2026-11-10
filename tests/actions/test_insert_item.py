@@ -311,3 +311,22 @@ def test_insert_out_of_reach(game):
     game.move_to(Position(x=30, y=0))
     with pytest.raises(Exception, match="too far away"):
         game.insert_item(Prototype.IronPlate, chest, quantity=5)
+
+
+def test_insert_part_used_science_pack_keeps_its_durability(game):
+    game.instance.rcon_client.send_command(
+        "/sc local c = storage.agent_characters[1]; "
+        "c.insert{name = 'lab', count = 1}; "
+        "c.insert{name = 'automation-science-pack', count = 1}; "
+        "local inv = c.get_main_inventory(); "
+        "for i = 1, #inv do local s = inv[i]; "
+        "if s.valid_for_read and s.name == 'automation-science-pack' then s.drain_durability(0.7) end end"
+    )
+    lab = game.place_entity(Prototype.Lab, position=Position(x=4, y=4))
+    game.insert_item(Prototype.AutomationSciencePack, lab, quantity=1)
+    durability = game.instance.rcon_client.send_command(
+        "/sc local l = game.surfaces[1].find_entities_filtered{name = 'lab'}[1]; "
+        "local s = l.get_inventory(defines.inventory.lab_input)[1]; "
+        "rcon.print(s.valid_for_read and s.durability or -1)"
+    )
+    assert float(durability) == pytest.approx(0.3)

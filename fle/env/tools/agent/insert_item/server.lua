@@ -30,6 +30,58 @@ local function get_inventory_info(entity)
     return ""
 end
 
+-- Durability of one item of a tool (e.g. a science pack), or nil for other items
+local function tool_max_durability(item_name)
+    local prototype = prototypes.item[item_name]
+    if prototype and prototype.type == "tool" then
+        return prototype.get_durability()
+    end
+    return nil
+end
+
+-- Total durability of an item in an inventory: full items plus the part-used top item of each stack
+local function inventory_durability(inventory, item_name, max_durability)
+    local total = 0
+    if not inventory then
+        return 0
+    end
+    for slot = 1, #inventory do
+        local stack = inventory[slot]
+        if stack.valid_for_read and stack.name == item_name then
+            total = total + (stack.count - 1) * max_durability + stack.durability
+        end
+    end
+    return total
+end
+
+local function entity_durability(entity, item_name, max_durability)
+    local total = 0
+    for index = 1, entity.get_max_inventory_index() do
+        total = total + inventory_durability(entity.get_inventory(index), item_name, max_durability)
+    end
+    return total
+end
+
+local function drain_entity_durability(entity, item_name, amount)
+    for index = 1, entity.get_max_inventory_index() do
+        local inventory = entity.get_inventory(index)
+        if inventory then
+            for slot = 1, #inventory do
+                if amount <= 1e-9 then
+                    return
+                end
+                local stack = inventory[slot]
+                if stack.valid_for_read and stack.name == item_name then
+                    local available = (stack.count - 1) * stack.prototype.get_durability() + stack.durability
+                    local drained = math.min(amount, available)
+                    stack.drain_durability(drained)
+                    amount = amount - drained
+                end
+            end
+        end
+    end
+end
+
 storage.actions.insert_item = function(player_index, insert_item, count, x, y, target_name)
     -- Ensure we have a valid character, recreating if necessary
     local player = storage.utils.ensure_valid_character(player_index)
@@ -206,6 +258,16 @@ storage.actions.insert_item = function(player_index, insert_item, count, x, y, t
     -- Determine how many items can be inserted
     local insertable_count = math.min(count, item_count)
 
+    -- Science packs are tools: the top item of a stack may be part-used. Insert
+    -- adds full items and remove_item takes items by count, so measure the total
+    -- durability on both sides to carry part-used packs over as they are.
+    local max_durability = tool_max_durability(insert_item)
+    local player_durability_before, entity_durability_before
+    if max_durability then
+        player_durability_before = inventory_durability(player.get_main_inventory(), insert_item, max_durability)
+        entity_durability_before = entity_durability(closest_entity, insert_item, max_durability)
+    end
+
    -- Attempt to insert items
     local inserted = 0
     if closest_entity.type == "transport-belt" then
@@ -264,6 +326,13 @@ storage.actions.insert_item = function(player_index, insert_item, count, x, y, t
     if inserted > 0 then
         -- Only remove successfully inserted items from player
         player.remove_item{name=insert_item, count=inserted}
+        if max_durability then
+            -- The entity gained full items; take back what the character's
+            -- part-used items didn't have
+            local lost = player_durability_before - inventory_durability(player.get_main_inventory(), insert_item, max_durability)
+            local gained = entity_durability(closest_entity, insert_item, max_durability) - entity_durability_before
+            drain_entity_durability(closest_entity, insert_item, gained - lost)
+        end
         -- game.print("Successfully inserted " .. inserted .. " items.")
         return storage.utils.serialize_entity(closest_entity)
     else
