@@ -18,7 +18,7 @@ class ExtractItem(Tool):
         :param source: Entity or position to extract from
         :param quantity: Quantity to extract
         :example extract_item(Prototype.IronPlate, stone_furnace.position, 5)
-        :example extract_item(Prototype.CopperWire, stone_furnace, 5)
+        :example extract_item(Prototype.CopperCable, stone_furnace, 5)
         :return The number of items extracted.
         """
         source_name = None

@@ -109,7 +109,7 @@ def safe_get_progress():
 try:
     progress = get_research_progress()
 except Exception as e:
-    if "No research in progress" in str(e):
+    if "No research currently in progress" in str(e):
         # Handle no research case
         pass
 ```
