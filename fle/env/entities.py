@@ -713,6 +713,42 @@ class Inserter(StaticEntity, Electric):
     _height: float = 1
 
 
+class InserterPreview(BaseModel):
+    """What an inserter would take from and drop into if placed at `position`
+    facing `direction` (preview_inserter). pickup_target / drop_target: the
+    entity at that position an inserter can use (a belt or an entity with an
+    inventory), None when there is nothing; *_target_position: its position."""
+
+    position: Position
+    direction: Optional[Direction] = None
+    pickup_position: Position
+    pickup_target: Optional[str] = None
+    pickup_target_position: Optional[Position] = None
+    drop_position: Position
+    drop_target: Optional[str] = None
+    drop_target_position: Optional[Position] = None
+
+    def __repr__(self) -> str:
+        def where(pos: Position) -> str:
+            return f"({pos.x}, {pos.y})"
+
+        def target(name: Optional[str], pos: Optional[Position]) -> str:
+            if not name:
+                return "nothing"
+            return f"{name} at {where(pos)}" if pos else name
+
+        direction = f"direction={self.direction.name}, " if self.direction else ""
+        return (
+            f"InserterPreview(position={where(self.position)}, {direction}"
+            f"pickup_position={where(self.pickup_position)}, "
+            f"pickup_target={target(self.pickup_target, self.pickup_target_position)}, "
+            f"drop_position={where(self.drop_position)}, "
+            f"drop_target={target(self.drop_target, self.drop_target_position)})"
+        )
+
+    __str__ = __repr__
+
+
 class Filtered(BaseModel):
     filter: Optional[Any] = None
 
