@@ -47,8 +47,9 @@ The tool performs several validation checks before starting research:
 1. Verifies the technology exists
 2. Confirms the technology isn't already researched
 3. Checks if the technology is enabled
-4. Validates all prerequisites are researched
-5. Ensures required science pack recipes are available
+4. Checks the technology is not a trigger technology (see below)
+5. Validates all prerequisites are researched
+6. Ensures required science pack recipes are available
 
 ## Error Cases
 
@@ -57,6 +58,7 @@ The tool will raise exceptions in the following situations:
 - Technology doesn't exist (the message lists the closest technology names)
 - Technology is already researched
 - Technology is not enabled
+- Technology is a trigger technology (the message names the game action that completes it)
 - Missing prerequisites
 - Missing required science pack recipes
 - Failed to start research
@@ -79,6 +81,12 @@ In Factorio 2.0 some technologies are not researched in labs. They have no scien
 - `oil-processing`: mine crude oil
 - `uranium-processing`: mine uranium ore
 - `space-science-pack`: send a satellite to orbit
+
+`set_research` raises for a trigger technology, and the current research is left unchanged:
+
+```python
+"Cannot start research for steam-power. It is a trigger technology, completed by a game action instead of labs: craft 50 iron-plate"
+```
 
 ## Requirements
 
