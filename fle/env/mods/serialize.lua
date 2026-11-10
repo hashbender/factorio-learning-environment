@@ -614,6 +614,21 @@ storage.utils.serialize_recipe = function(recipe)
     }
 end
 
+-- How much fluid one fluidbox holds: its prototype's volume. In Factorio 2.0
+-- LuaFluidBox.get_capacity of a box that is part of a pipe segment returns the
+-- whole segment's capacity, so it is only the fallback.
+storage.utils.fluidbox_volume = function(fluidbox, index)
+    local ok, volume = pcall(function() return fluidbox.get_prototype(index).volume end)
+    if ok and volume then
+        return volume
+    end
+    local ok_cap, capacity = pcall(function() return fluidbox.get_capacity(index) end)
+    if ok_cap then
+        return capacity
+    end
+    return nil
+end
+
 storage.utils.serialize_entity = function(entity)
 
     if entity == nil then
@@ -945,7 +960,9 @@ storage.utils.serialize_entity = function(entity)
         serialized.fluidbox_id = entity.fluidbox.get_fluid_segment_id(1)
         local own = entity.fluidbox[1]
         serialized.amount = own and own.amount or 0
-        serialized.capacity = entity.fluidbox.get_capacity(1)
+        -- get_capacity(1) of a pipe is its whole segment's capacity in 2.0;
+        -- the pipe itself holds its fluidbox prototype's volume
+        serialized.capacity = storage.utils.fluidbox_volume(entity.fluidbox, 1)
         if own then
             serialized.temperature = own.temperature
             serialized.fluid = "\""..own.name.."\""
@@ -1333,8 +1350,8 @@ storage.utils.serialize_entity = function(entity)
                     -- index: the fluidbox number; capacity and type (input /
                     -- output / input-output) as the game reports them
                     local box = {index = i, name = "\""..fluid.name.."\"", amount = fluid.amount, temperature = fluid.temperature}
+                    box.capacity = storage.utils.fluidbox_volume(fluid_box, i)
                     pcall(function()
-                        box.capacity = fluid_box.get_capacity(i)
                         box.type = "\""..fluid_box.get_prototype(i).production_type.."\""
                     end)
                     table.insert(serialized.fluid_box, box)
