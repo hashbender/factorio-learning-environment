@@ -15,6 +15,52 @@ storage.actions.nearest_buildable = function(player_index, entity_name, bounding
     -- Cache for chunk resources
     local chunk_cache = {}
 
+    -- Fluid ports: for each of the four directions the entity can face, the tile each
+    -- pipe connection opens onto, relative to the entity's centre. The tool returns a box
+    -- and the entity is placed at its centre; a port that opens onto water can never be
+    -- connected, so such a spot is not buildable for this entity. Offshore pumps (which
+    -- stand at the shore) and general assembling machines (whose fluid boxes are only
+    -- active with a fluid recipe) are not checked.
+    local WATER_TILES = {"water", "deepwater", "water-green", "deepwater-green", "water-shallow", "water-mud"}
+    local is_water = {}
+    for _, name in ipairs(WATER_TILES) do is_water[name] = true end
+    local DIRECTION_VECTORS = {[0] = {0, -1}, [4] = {1, 0}, [8] = {0, 1}, [12] = {-1, 0}}
+    local port_targets = {}
+    local function general_assembler(proto)
+        return proto.type == "assembling-machine" and proto.crafting_categories ~= nil
+            and proto.crafting_categories["crafting"] == true
+    end
+    if entity_prototype.type ~= "offshore-pump" and not general_assembler(entity_prototype) then
+        local ok = pcall(function()
+            for _, fluidbox in ipairs(entity_prototype.fluidbox_prototypes or {}) do
+                for _, connection in ipairs(fluidbox.pipe_connections or {}) do
+                    if (connection.connection_type or "normal") == "normal" and connection.direction then
+                        for k, offset in ipairs(connection.positions or {}) do
+                            local vector = DIRECTION_VECTORS[(connection.direction + 4 * (k - 1)) % 16]
+                            if vector then
+                                table.insert(port_targets, {x = offset.x + vector[1], y = offset.y + vector[2]})
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        if not ok then port_targets = {} end
+    end
+
+    local function ports_open_onto_land(left_top, right_bottom)
+        if #port_targets == 0 then return true end
+        local cx = (left_top.x + right_bottom.x) / 2
+        local cy = (left_top.y + right_bottom.y) / 2
+        for _, target in ipairs(port_targets) do
+            local tile = surface.get_tile(cx + target.x, cy + target.y)
+            if tile and tile.valid and is_water[tile.name] then
+                return false
+            end
+        end
+        return true
+    end
+
     local function get_chunk_resources(chunk_x, chunk_y)
         local cache_key = chunk_x .. "," .. chunk_y
         if not chunk_cache[cache_key] then
@@ -108,8 +154,13 @@ storage.actions.nearest_buildable = function(player_index, entity_name, bounding
         -- Factorio 2.0: Use tile name filter for water check instead of collision_mask
         if surface.count_tiles_filtered{
             area = {left_top, right_bottom},
-            name = {"water", "deepwater", "water-green", "deepwater-green", "water-shallow", "water-mud"}
+            name = WATER_TILES
         } > 0 then
+            return false
+        end
+
+        -- The entity's fluid ports, in any direction, must not open onto water
+        if not ports_open_onto_land(left_top, right_bottom) then
             return false
         end
 

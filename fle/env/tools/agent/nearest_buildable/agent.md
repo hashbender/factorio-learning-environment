@@ -14,6 +14,8 @@ nearest_buildable(
 
 The function returns a BoundingBox object containing buildable area coordinates.
 
+For an entity with fluid ports (oil refinery, chemical plant, boiler, steam engine, pump, storage tank, pumpjack...), the area is only returned if none of the entity's ports, placed at the centre of the area facing any direction, opens onto water. Offshore pumps and assembling machines 1-3 are not checked this way.
+
 ### Parameters
 
 - `entity`: Prototype of entity to place
