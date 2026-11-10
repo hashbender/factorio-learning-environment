@@ -117,7 +117,13 @@ class ConnectEntities(Tool):
             isinstance(item, Prototype) for item in arg
         )
 
-    def __call__(self, *args, **kwargs):
+    def __call__(
+        self,
+        *waypoints: Union[Position, Entity, EntityGroup],
+        connection_type: Union[Prototype, Set[Prototype]] = None,
+        dry_run: bool = False,
+        **kwargs,
+    ) -> EntityGroup:
         """
         Connect two or more entities, positions or entity groups, in order, with belts, pipes or power poles.
         Call as connect_entities(source, target, connection_type) or
@@ -127,6 +133,11 @@ class ConnectEntities(Tool):
         :param dry_run: If True, place nothing and return the number of entities required and available
         :return: The resulting entity group (e.g. a BeltGroup, PipeGroup or ElectricityGroup)
         """
+        args = waypoints
+        if connection_type is not None:
+            kwargs["connection_type"] = connection_type
+        if dry_run:
+            kwargs["dry_run"] = dry_run
         max_retries = 2
         retry_count = 0
 
