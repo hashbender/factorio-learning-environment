@@ -563,6 +563,9 @@ class Entity(EntityCore):
     health: float
     warnings: List[str] = []
     status: EntityStatus = EntityStatus.NORMAL
+    # The concrete reason behind the status, as the game's entity window shows it
+    # (e.g. "missing iron-plate (0 of 1 per craft)"); None when there is none
+    status_detail: Optional[str] = None
     # game: Optional[Any] = None # RCON connection for refreshing attributes
 
     def __repr__(self) -> str:
@@ -593,10 +596,9 @@ class Entity(EntityCore):
                 if isinstance(value, Enum):
                     repr_dict[clean_key] = value
                 else:
-                    if (
-                        clean_key == "warnings" and value
-                    ) or clean_key != "warnings":  # Don't show empty warnings list
-                        repr_dict[clean_key] = value
+                    if clean_key in ("warnings", "status_detail") and not value:
+                        continue  # don't show an empty warnings list or no status detail
+                    repr_dict[clean_key] = value
 
         repr_dict["height"] = self.tile_dimensions.tile_height
         repr_dict["width"] = self.tile_dimensions.tile_width
@@ -970,7 +972,8 @@ class RocketSilo(StaticEntity, Electric):
     def __repr__(self) -> str:
         return (
             f"\n\tRocketSilo(position={self.position}, status={self.status}, "
-            f"rocket_parts={self.rocket_parts}, rocket_progress={self.rocket_progress:.1f}%)"
+            + (f"status_detail={self.status_detail!r}, " if self.status_detail else "")
+            + f"rocket_parts={self.rocket_parts}, rocket_progress={self.rocket_progress:.1f}%)"
         )
 
 
@@ -1000,7 +1003,8 @@ class Lab(Entity, Electric):
         research_string = ""
         if self.research and self.research in technology_by_name:
             research_string = f"research={self.research}, "
-        return f"\n\tLab(lab_input={self.lab_input}, status={self.status}, {research_string}electrical_id={self.electrical_id})"
+        detail = f"status_detail={self.status_detail!r}, " if self.status_detail else ""
+        return f"\n\tLab(lab_input={self.lab_input}, status={self.status}, {detail}{research_string}electrical_id={self.electrical_id})"
 
 
 class Pipe(Entity):
