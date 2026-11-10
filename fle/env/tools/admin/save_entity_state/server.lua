@@ -139,9 +139,15 @@ storage.actions.save_entity_state = function(player_index, distance, player_enti
                 -- Factorio 2.0: currently_burning may be a LuaItemPrototype userdata
                 local burning_name = nil
                 if entity.burner.currently_burning then
-                    -- Try to get the name safely (could be userdata or table)
+                    -- Factorio 2.0 returns {name = LuaItemPrototype, quality = ...}, so
+                    -- the item name is currently_burning.name.name
                     local ok, name = pcall(function()
-                        return entity.burner.currently_burning.name
+                        local burning = entity.burner.currently_burning
+                        local item = burning.name
+                        if type(item) ~= "string" then
+                            item = item.name
+                        end
+                        return item
                     end)
                     if ok and name then
                         burning_name = '"' .. tostring(name) .. '"'
