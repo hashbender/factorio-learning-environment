@@ -47,7 +47,7 @@ class GetResourceReserves(Tool):
             )
         patches = []
         for p in _list(response.get("patches")):
-            patch = {"name": str(p.get("name", "?"))}
+            patch = {"name": str(p.get("name", "?")).strip('"')}
             for key in PATCH_FIELDS:
                 if p.get(key) is not None:
                     patch[key] = float(p[key])

@@ -59,7 +59,8 @@ storage.actions.get_resource_reserves = function(player_index, margin, radius, m
     for _, key in ipairs(seed_keys) do
         local s = seeds[key]
         if not visited[key] then
-            local patch = {name = s.name, amount = 0, tiles = 0, clipped = false}
+            -- quoted: the response is dumped unquoted, and "iron-ore" would read as iron - ore
+            local patch = {name = "\"" .. s.name .. "\"", amount = 0, tiles = 0, clipped = false}
             local queue = {{s.cx, s.cy}}
             visited[key] = true
             local head = 1

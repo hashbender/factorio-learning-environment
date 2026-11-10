@@ -17,11 +17,39 @@ POS_RE = re.compile(r"\((-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\)")
 RECIPE_RE = re.compile(r"^name='([^']+)'")
 RESOURCE_RE = re.compile(r"name='([^']+)' count=(\d+)(?: type=\w+)?")
 
-# Detail levels per entity type, least to most compact
-LOSSLESS, SUMMARISE_LONG, SUMMARISE_VARYING, STATUS_AND_POSITIONS, COUNTS_ONLY = range(
-    5
-)
+# Detail levels per entity type, least to most compact:
+# LOSSLESS: every value;
+# SUMMARISE_LONG: long lists (belt contents, belt / pipe / pole positions) as
+#   counts and areas; static size fields (STATIC_KEYS) not listed;
+# SUMMARISE_VARYING: values with more than 3 distinct values become ranges,
+#   except KEEP_KEYS (connections, recipe, status, ...);
+# KEY_VALUES_ONLY: every value outside KEEP_KEYS becomes a range;
+# STATUS_AND_POSITIONS: status counts and positions;
+# COUNTS_ONLY: status counts and the area.
+(
+    LOSSLESS,
+    SUMMARISE_LONG,
+    SUMMARISE_VARYING,
+    KEY_VALUES_ONLY,
+    STATUS_AND_POSITIONS,
+    COUNTS_ONLY,
+) = range(6)
 MAX_LEVEL = COUNTS_ONLY
+
+# Prototype size fields, the same for every entity of a type
+STATIC_KEYS = {"dimensions", "tile_dimensions", "health"}
+# Kept per entity down to KEY_VALUES_ONLY
+KEEP_KEYS = {
+    "status",
+    "recipe",
+    "direction",
+    "pickup_target",
+    "drop_target",
+    "held",
+    "fluid",
+    "research",
+    "lanes",
+}
 
 # At SUMMARISE_LONG, list values longer than this (belt contents, positions of
 # belts / pipes / poles) are replaced by their counts and area
@@ -34,7 +62,7 @@ ABSOLUTE_KEYS = {"belt_positions", "holding", "inputs", "outputs", "pipes", "pol
 NOTE = (
     "(compact listing to fit the size limit: values shared by a group are shown "
     "once, then where its entities are; +(dx, dy) is relative to the entity's own "
-    "position; 'varies' marks values summarised to fit)"
+    "position; 'varies' marks values summarized to fit)"
 )
 
 
@@ -227,16 +255,21 @@ def _short(key: str, value: str) -> Optional[str]:
     return None
 
 
-def describe(entity_type: str, n: int, level: int, keys: List[str]) -> Optional[str]:
-    """What render_type left out for a type, or None when nothing was."""
-    if level >= COUNTS_ONLY:
-        return f"{entity_type} x{n} (count, status and area only)"
-    if level == STATUS_AND_POSITIONS:
-        return (
-            f"{entity_type} x{n} (status and positions listed, other values not listed)"
-        )
+LEVEL_TEXT = {
+    STATUS_AND_POSITIONS: "status and positions only",
+    COUNTS_ONLY: "count, status and area only",
+}
+
+
+def describe(
+    entity_type: str, n: int, level: int, keys: List[str]
+) -> Optional[Tuple[str, str]]:
+    """(category, "type xN") or (category, "type xN (keys)") for what render_type
+    left out of a type, or None when nothing was."""
+    if level in LEVEL_TEXT:
+        return LEVEL_TEXT[level], f"{entity_type} x{n}"
     if keys:
-        return f"{entity_type} x{n} ({', '.join(sorted(keys))} summarized)"
+        return "values summarized", f"{entity_type} x{n} ({', '.join(sorted(keys))})"
     return None
 
 
@@ -246,9 +279,12 @@ def render_type(entity_type: str, entities: List[Dict[str, str]], level: int) ->
 
 def render_type_noted(
     entity_type: str, entities: List[Dict[str, str]], level: int
-) -> Tuple[str, Optional[str]]:
+) -> Tuple[str, Optional[Tuple[str, str]]]:
     """The type's lines at this detail level, and what was summarised (or None)."""
     prepared = [prepare(e) for e in entities]
+    for _, state in prepared:
+        if state.get("name") == entity_type:
+            del state["name"]  # the type is the header
     n = len(prepared)
     lines = [f"- {entity_type}: {n}"]
     positions = [p for p, _ in prepared if p is not None]
@@ -264,8 +300,20 @@ def render_type_noted(
             )
             label = "area" if level == COUNTS_ONLY else "at"
             lines.append(f"  {label}: {where}")
-        lines.append("  (other values not listed, to fit the size limit)")
         return "\n".join(lines), describe(entity_type, n, level, [])
+
+    noted = set()
+    if level >= SUMMARISE_LONG:
+        for _, state in prepared:
+            for key in list(state):
+                if key in STATIC_KEYS:
+                    del state[key]
+                    noted.add(key)
+                    continue
+                short = _short(key, state[key])
+                if short is not None:
+                    state[key] = short
+                    noted.add(key)
 
     keys = set().union(*(s.keys() for _, s in prepared)) if prepared else set()
     shared = {}
@@ -276,26 +324,14 @@ def render_type_noted(
     varying = sorted(keys - set(shared))
 
     summarised = {}
-    short_keys = set()
-    if level >= SUMMARISE_LONG:
-        for key in list(shared):
-            short = _short(key, shared[key])
-            if short is not None:
-                shared[key] = short
-                short_keys.add(key)
-        for key in varying:
-            vals = [s.get(key, "") for _, s in prepared]
-            shorts = [_short(key, v) for v in vals]
-            if any(x is not None for x in shorts):
-                short_keys.add(key)
-                for (_, st), v, x in zip(prepared, vals, shorts):
-                    if x is not None and key in st:
-                        st[key] = x
     if level >= SUMMARISE_VARYING:
         for key in varying:
+            if key in KEEP_KEYS or key in ABSOLUTE_KEYS:
+                continue
             vals = [s.get(key, "") for _, s in prepared]
-            if len(set(vals)) > 3:
+            if level >= KEY_VALUES_ONLY or len(set(vals)) > 3:
                 summarised[key] = _summary(vals)
+    noted |= set(summarised)
     if shared or summarised:
         lines.append(f"  all: {_kv({**shared, **summarised})}")
 
@@ -325,8 +361,7 @@ def render_type_noted(
         if unplaced:
             where = (where + " " if where else "") + f"({unplaced} without a position)"
         lines.append(f"  at: {where}")
-    noted = sorted(short_keys | set(summarised))
-    return "\n".join(lines), describe(entity_type, n, level, noted)
+    return "\n".join(lines), describe(entity_type, n, level, sorted(noted))
 
 
 def compact_section(groups: Dict[str, List[Dict[str, str]]], budget_chars: int) -> str:
@@ -342,10 +377,17 @@ def compact_section(groups: Dict[str, List[Dict[str, str]]], budget_chars: int) 
     rendered = {t: render_type_noted(t, groups[t], LOSSLESS) for t in types}
 
     def section() -> str:
-        notes = [rendered[t][1] for t in types if rendered[t][1]]
+        by_category: Dict[str, List[str]] = {}
+        for t in types:
+            note = rendered[t][1]
+            if note:
+                by_category.setdefault(note[0], []).append(note[1])
         header = "### Entities " + NOTE
-        if notes:
-            header += f"\nSummarized to fit {budget_chars} chars: " + "; ".join(notes)
+        if by_category:
+            header += f"\nSummarized to fit {budget_chars} chars: " + "; ".join(
+                f"{category}: {', '.join(items)}"
+                for category, items in by_category.items()
+            )
         return header + "\n" + "\n".join(rendered[t][0] for t in types)
 
     out = section()

@@ -159,6 +159,16 @@ def test_within_lists_every_belt_when_it_fits():
     assert f"belt_positions={Direction.EAST.name} (0.5..9.5 by 1, 0.5)" in text
 
 
+def _notes(text):
+    """{category: [type, ...]} from the "Summarized to fit" line."""
+    m = re.search(r"^Summarized to fit \d+ chars: (.*)$", text, re.M)
+    out = {}
+    for part in re.split(r"; (?=[a-z ,]+: )", m.group(1)) if m else []:
+        category, _, items = part.partition(": ")
+        out[category] = re.findall(r"([\w-]+) x\d+", items)
+    return out
+
+
 def test_belt_factory_fits_and_says_what_was_summarized():
     ents = _belt_factory() + _factory(2, 6)
     budget = 3000
@@ -171,9 +181,19 @@ def test_belt_factory_fits_and_says_what_was_summarized():
         "stone-furnace": "12",
         "assembling-machine-1": "10",
     }
-    assert "Summarized to fit 3000 chars: " in text
-    assert "belt-group x12 (" in text
+    notes = _notes(text)
+    assert any("belt-group" in types for types in notes.values()), text[:600]
     assert "more)" not in text and "omitted" not in text
+
+
+def test_connections_survive_value_summaries():
+    # at the value-summary levels, inserter targets and belt ends stay listed
+    groups = T._entity_groups(_belt_factory(groups=6), uncapped=True)
+    from fle.env.gym_env.entity_compact import KEY_VALUES_ONLY, render_type
+
+    text = render_type("belt-group", groups["belt-group"], KEY_VALUES_ONLY)
+    assert text.count("outputs=[(39.5, ") == 6
+    assert "holding=varies" not in text
 
 
 def test_types_are_never_cut():
@@ -185,14 +205,25 @@ def test_types_are_never_cut():
 
 
 def test_reduction_is_uniform_across_types():
-    # a big and a small type: the small one is summarised no further than the big one
+    # a type goes to level L + 1 only when every type is at level L or more
+    from fle.env.gym_env import entity_compact as C
+
     ents = _belt_factory(groups=12) + _factory(1, 3)
-    text = T.format_entities_within(ents, 2500)
-    assert "belt-group x12 (" in text
-    big = re.search(r"belt-group x12 \(([^)]*)\)", text).group(1)
-    small = re.search(r"stone-furnace x3 \(([^)]*)\)", text)
-    if small and "count, status and area only" in small.group(1):
-        assert "count, status and area only" in big
+    groups = T._entity_groups(ents, uncapped=True)
+    current = {t: 0 for t in groups}
+    orig = C.render_type_noted
+
+    def spy(t, e, level):
+        assert all(current[o] >= level - 1 for o in groups), (t, level, current)
+        current[t] = level
+        return orig(t, e, level)
+
+    C.render_type_noted = spy
+    try:
+        text = C.compact_section(groups, 2500)
+    finally:
+        C.render_type_noted = orig
+    assert len(text) <= 2500 and max(current.values()) > 0
 
 
 def test_points_expand_runs():
