@@ -427,6 +427,61 @@ def test_new_items_have_a_prototype(name):
     assert name in prototype_by_name
 
 
+# Items and fluids that red, green and blue science research unlocks or makes
+# (prototypes.technology effects on Factorio 2.0.73), plus steam and the
+# starting light armor
+RED_GREEN_BLUE_NAMES = (
+    "battery-equipment",
+    "battery-mk2-equipment",
+    "belt-immunity-equipment",
+    "construction-robot",
+    "crude-oil",
+    "crude-oil-barrel",
+    "display-panel",
+    "exoskeleton-equipment",
+    "hazard-concrete",
+    "heavy-armor",
+    "heavy-oil-barrel",
+    "light-armor",
+    "light-oil-barrel",
+    "logistic-robot",
+    "lubricant-barrel",
+    "modular-armor",
+    "night-vision-equipment",
+    "personal-roboport-equipment",
+    "petroleum-gas-barrel",
+    "power-armor",
+    "refined-concrete",
+    "refined-hazard-concrete",
+    "selector-combinator",
+    "shotgun",
+    "shotgun-shell",
+    "solar-panel-equipment",
+    "steam",
+    "submachine-gun",
+    "sulfuric-acid-barrel",
+    "water",
+    "water-barrel",
+)
+
+
+@pytest.mark.parametrize("name", RED_GREEN_BLUE_NAMES)
+def test_red_green_blue_names_have_a_prototype(name):
+    assert name in prototype_by_name
+
+
+@pytest.mark.parametrize(
+    "name", ["logistic-robot", "construction-robot", "display-panel"]
+)
+def test_placeable_or_flying_entities_have_an_entity_class(name):
+    # get_entities builds these with the member's class, so it must not be None
+    assert prototype_by_name[name].entity_class is ent.Entity
+
+
+def test_selector_combinator_is_a_combinator():
+    assert Prototype.SelectorCombinator.entity_class is ent.Combinator
+
+
 def test_rocket_is_the_ammo_item():
     assert Prototype.Rocket.value[0] == "rocket"
     assert Prototype.Rocket.entity_class is ent.Ammo

@@ -166,6 +166,9 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
     CopperOre = "copper-ore", None
     Stone = "stone", None
     Concrete = "concrete", None
+    HazardConcrete = "hazard-concrete", None
+    RefinedConcrete = "refined-concrete", None
+    RefinedHazardConcrete = "refined-hazard-concrete", None
     UraniumOre = "uranium-ore", None
 
     IronPlate = "iron-plate", None  # Crafting requires smelting 1 iron ore
@@ -177,11 +180,23 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
     PlasticBar = "plastic-bar", None
     Barrel = "barrel", None  # Factorio 2.0: empty-barrel renamed to barrel
     EmptyBarrel = "barrel", None  # Alias of Barrel (the 1.1 name was empty-barrel)
+    # Filled barrels (made by the <fluid>-barrel recipes in an assembling machine)
+    WaterBarrel = "water-barrel", None
+    CrudeOilBarrel = "crude-oil-barrel", None
+    PetroleumGasBarrel = "petroleum-gas-barrel", None
+    LightOilBarrel = "light-oil-barrel", None
+    HeavyOilBarrel = "heavy-oil-barrel", None
+    LubricantBarrel = "lubricant-barrel", None
+    SulfuricAcidBarrel = "sulfuric-acid-barrel", None
     Battery = "battery", None
     SulfuricAcid = "sulfuric-acid", None
     Uranium235 = "uranium-235", None
     Uranium238 = "uranium-238", None
 
+    # Fluids
+    Water = "water", None
+    Steam = "steam", None
+    CrudeOil = "crude-oil", None
     Lubricant = "lubricant", None
     PetroleumGas = "petroleum-gas", None
     AdvancedOilProcessing = (
@@ -217,6 +232,22 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
     CliffExplosives = "cliff-explosives", None
     Landfill = "landfill", None
     RepairPack = "repair-pack", None
+    Shotgun = "shotgun", None
+    ShotgunShell = "shotgun-shell", None
+    SubmachineGun = "submachine-gun", None
+
+    # Armor and equipment
+    LightArmor = "light-armor", None
+    HeavyArmor = "heavy-armor", None
+    ModularArmor = "modular-armor", None
+    PowerArmor = "power-armor", None
+    SolarPanelEquipment = "solar-panel-equipment", None
+    BatteryEquipment = "battery-equipment", None
+    BatteryMk2Equipment = "battery-mk2-equipment", None
+    BeltImmunityEquipment = "belt-immunity-equipment", None
+    ExoskeletonEquipment = "exoskeleton-equipment", None
+    NightVisionEquipment = "night-vision-equipment", None
+    PersonalRoboportEquipment = "personal-roboport-equipment", None
 
     Radar = "radar", ent.Entity
     StoneWall = "stone-wall", ent.Entity
@@ -239,6 +270,8 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
     ProductivityModule3 = "productivity-module-3", None
 
     FlyingRobotFrame = "flying-robot-frame", None
+    LogisticRobot = "logistic-robot", ent.Entity
+    ConstructionRobot = "construction-robot", ent.Entity
 
     RocketSilo = "rocket-silo", ent.RocketSilo
     RocketSiloRocket = (
@@ -285,6 +318,8 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
     ArithmeticCombinator = "arithmetic-combinator", ent.Combinator
     DeciderCombinator = "decider-combinator", ent.Combinator
     ConstantCombinator = "constant-combinator", ent.Combinator
+    SelectorCombinator = "selector-combinator", ent.Combinator
+    DisplayPanel = "display-panel", ent.Entity
     PowerSwitch = "power-switch", ent.Combinator
     ProgrammableSpeaker = "programmable-speaker", ent.Entity
 
