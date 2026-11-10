@@ -753,7 +753,9 @@ def test_connect_steam_engine_battery(game):
     assert engine2_pipes, "Failed to connect steam engines in second row"
 
     # Add fuel to boilers
+    game.move_to(boiler1.position)  # within reach
     game.insert_item(Prototype.Coal, boiler1, 50)
+    game.move_to(boiler2.position)  # within reach
     game.insert_item(Prototype.Coal, boiler2, 50)
 
     # Connect boilers
