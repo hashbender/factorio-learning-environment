@@ -64,9 +64,8 @@ end
 -- For a chemical plant whose entity.direction is north (Factorio 2.0 prototype):
 --   Inputs are on the north side (y - 1.5)
 --   Outputs are on the south side (y + 1.5)
--- Note: get_entity_direction maps a requested direction to the opposite entity
--- direction for chemical plants, so a plant placed with direction=UP faces south
--- and has its inputs on the south side.
+-- Used only when the game's own pipe connections can't be read (see
+-- get_chemical_plant_fluid_mappings).
 local function get_chemical_plant_position_offsets(index, total, is_input)
     if is_input then
         if total == 1 then
@@ -134,10 +133,82 @@ storage.utils.get_refinery_fluid_mappings = function(entity, recipe)
     }
 end
 
+-- Fluid names of the given type in a recipe's ingredient or product list, in order
+local function fluid_names(list)
+    local names = {}
+    for _, item in pairs(list or {}) do
+        if item.type == "fluid" then
+            table.insert(names, item.name)
+        end
+    end
+    return names
+end
+
+-- The chemical plant's connection points as the game has them: for each input
+-- or output fluid box, the point between the plant's port tile and the tile a
+-- pipe must occupy (LuaFluidBox.get_pipe_connections), typed with the fluid the
+-- recipe puts in that box. Returns nil if the fluid boxes can't be read.
+local function read_chemical_plant_fluid_mappings(entity, recipe)
+    local fluid_inputs = fluid_names(recipe.ingredients)
+    local fluid_outputs = fluid_names(recipe.products)
+    local input_points, output_points = {}, {}
+    local n_in, n_out = 0, 0
+    for i = 1, #entity.fluidbox do
+        local proto = entity.fluidbox.get_prototype(i)
+        if type(proto) == "table" and proto.object_name == nil then
+            proto = proto[1]
+        end
+        local production_type = proto and proto.production_type
+        local connections = entity.fluidbox.get_pipe_connections(i)
+        if production_type ~= "input" and production_type ~= "output" then
+            local flow = connections[1] and connections[1].flow_direction
+            if flow == "input" or flow == "output" then
+                production_type = flow
+            end
+        end
+        local filter = entity.fluidbox.get_filter(i)
+        local fluid = filter and filter.name
+        if production_type == "input" then
+            n_in = n_in + 1
+            fluid = fluid or fluid_inputs[n_in]
+        elseif production_type == "output" then
+            n_out = n_out + 1
+            fluid = fluid or fluid_outputs[n_out]
+        end
+        if fluid and (production_type == "input" or production_type == "output") then
+            for _, connection in pairs(connections) do
+                if connection.position and connection.target_position then
+                    local point = {
+                        x = (connection.position.x + connection.target_position.x) / 2,
+                        y = (connection.position.y + connection.target_position.y) / 2,
+                        type = "\""..fluid.."\""
+                    }
+                    if production_type == "input" then
+                        table.insert(input_points, point)
+                    else
+                        table.insert(output_points, point)
+                    end
+                end
+            end
+        end
+    end
+    if #input_points == 0 and #output_points == 0 then
+        return nil
+    end
+    return {inputs = input_points, outputs = output_points}
+end
+
 -- Helper function to map connection points to fluid types for chemical plant
 storage.utils.get_chemical_plant_fluid_mappings = function(entity, recipe)
     if not entity or not recipe then return nil end
     if not entity.position then return nil end
+
+    if entity.valid then
+        local ok, mappings = pcall(read_chemical_plant_fluid_mappings, entity, recipe)
+        if ok and mappings then
+            return mappings
+        end
+    end
 
     local x, y = entity.position.x, entity.position.y
     local input_points = {}

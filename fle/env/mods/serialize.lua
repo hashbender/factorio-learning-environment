@@ -410,11 +410,14 @@ local function get_entity_direction(entity, direction)
             return defines.direction.west
         end
     elseif prototype and prototype.name == "chemical-plant" then
-        if direction == defines.direction.south then
+        -- Like the oil refinery and assembling machines: the plant faces the
+        -- requested direction (it used to face the opposite one, so the reported
+        -- direction and rotate_entity's result never matched the request)
+        if direction == defines.direction.north then
             return defines.direction.north
-        elseif direction == defines.direction.west then
+        elseif direction == defines.direction.east then
             return defines.direction.east
-        elseif direction == defines.direction.north then
+        elseif direction == defines.direction.south then
             return defines.direction.south
         else
             return defines.direction.west

@@ -149,3 +149,27 @@ def test_chemical_plant_input_connection_points_match_game(base_game, direction)
     }
     reported = {(p.x, p.y) for p in plant.input_connection_points}
     assert reported == expected
+
+
+@pytest.mark.parametrize(
+    "direction", [Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT]
+)
+def test_chemical_plant_faces_requested_direction(base_game, direction):
+    position = Position(x=0.5, y=6.5)
+    base_game.move_to(position)
+    plant = base_game.place_entity(
+        Prototype.ChemicalPlant, direction=direction, position=position
+    )
+    assert plant.direction.value == direction.value
+
+    # The game's entity faces the same way (defines.direction: 0, 4, 8, 12)
+    response = base_game.instance.rcon_client.send_command(
+        "/sc rcon.print(game.surfaces[1].find_entities_filtered"
+        f"{{name = 'chemical-plant', position = {{{plant.position.x}, {plant.position.y}}}}}[1].direction)"
+    )
+    assert int(response) == {
+        Direction.UP: 0,
+        Direction.RIGHT: 4,
+        Direction.DOWN: 8,
+        Direction.LEFT: 12,
+    }[direction]
