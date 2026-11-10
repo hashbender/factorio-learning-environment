@@ -1074,3 +1074,15 @@ def test_place_next_to_without_item_places_nothing(game):
             Prototype.IronChest, chest.position, direction=Direction.RIGHT, spacing=0
         )
     assert not game.get_entities({Prototype.IronChest})
+
+
+def test_place_next_to_out_of_reach(game):
+    chest = game.place_entity(Prototype.WoodenChest, position=Position(x=0, y=0))
+    game.move_to(Position(x=30, y=0))
+    before = game.inspect_inventory()[Prototype.WoodenChest]
+    with pytest.raises(Exception, match="too far away"):
+        game.place_entity_next_to(
+            Prototype.WoodenChest, chest.position, direction=Direction.RIGHT, spacing=0
+        )
+    assert game.inspect_inventory()[Prototype.WoodenChest] == before
+    assert len(game.get_entities({Prototype.WoodenChest})) == 1
