@@ -629,6 +629,111 @@ storage.utils.fluidbox_volume = function(fluidbox, index)
     return nil
 end
 
+-- Electric network summaries, keyed by electric_network_id: what the power
+-- pole GUI shows. Powers in W, energies in J.
+--   production / consumption: the network's 5 s average flows
+--   generator_max: the generators' rated maximum output
+--   demand: the rated power of consumers that are working or waiting for
+--     power (low or no power), plus the drain of the idle ones
+--   satisfaction: consumption / demand, at most 1 (nil without demand)
+--   accumulator_charge / accumulator_capacity, and counts of poles,
+--   generators, accumulators, consumers and consumers with low or no power
+-- Computed once per tick and surface (one get_entities call reuses it).
+local electric_summary_cache = {tick = -1}
+local WANTS_POWER = {working = true, low_power = true, no_power = true}
+-- Entity types that can take or give electric power (Factorio 2.0); only these
+-- are scanned. Unknown type names in a filter match nothing.
+local ELECTRIC_TYPES = {"electric-pole", "generator", "solar-panel", "burner-generator", "accumulator",
+    "assembling-machine", "furnace", "mining-drill", "inserter", "lab", "radar", "lamp", "roboport",
+    "beacon", "rocket-silo", "pump", "offshore-pump", "electric-turret", "electric-energy-interface",
+    "arithmetic-combinator", "decider-combinator", "selector-combinator", "programmable-speaker",
+    "agricultural-tower", "lightning-attractor", "fusion-reactor", "fusion-generator"}
+
+storage.utils.electric_network_summaries = function(surface, force)
+    local cache = electric_summary_cache
+    if cache.tick == game.tick and cache.surface == surface.index and cache.force == force.name then
+        return cache.data
+    end
+    local status_names = {}
+    for name, value in pairs(defines.entity_status) do
+        status_names[value] = name
+    end
+    local five_seconds = defines.flow_precision_index.five_seconds
+    local nets = {}
+    local stats_read = {}
+    for _, e in pairs(surface.find_entities_filtered{force = force, type = ELECTRIC_TYPES}) do
+        local ok_id, id = pcall(function() return e.electric_network_id end)
+        if ok_id and id then
+            local n = nets[id]
+            if not n then
+                n = {id = id, production = 0, consumption = 0, demand = 0, generator_max = 0,
+                     accumulator_charge = 0, accumulator_capacity = 0, poles = 0, generators = 0,
+                     accumulators = 0, consumers = 0, low_power = 0, no_power = 0}
+                nets[id] = n
+            end
+            local t = e.type
+            if t == "electric-pole" then
+                n.poles = n.poles + 1
+                if not stats_read[id] then
+                    stats_read[id] = true
+                    local st = e.electric_network_statistics
+                    for name, _ in pairs(st.output_counts) do
+                        n.production = n.production + st.get_flow_count{name = name, category = "output",
+                            precision_index = five_seconds, count = false} * 60
+                    end
+                    for name, _ in pairs(st.input_counts) do
+                        n.consumption = n.consumption + st.get_flow_count{name = name, category = "input",
+                            precision_index = five_seconds, count = false} * 60
+                    end
+                end
+            elseif t == "generator" or t == "solar-panel" or t == "burner-generator" then
+                n.generators = n.generators + 1
+                local ok, max = pcall(function() return e.prototype.get_max_power_output(e.quality) end)
+                if ok and max then
+                    n.generator_max = n.generator_max + max * 60
+                end
+            elseif t == "accumulator" then
+                n.accumulators = n.accumulators + 1
+                n.accumulator_charge = n.accumulator_charge + e.energy
+                n.accumulator_capacity = n.accumulator_capacity + e.electric_buffer_size
+            else
+                local ok_buf, buffer = pcall(function() return e.electric_buffer_size end)
+                if ok_buf and buffer and buffer > 0 then
+                    n.consumers = n.consumers + 1
+                    local ok_s, status = pcall(function() return e.status end)
+                    local status_name = ok_s and status and status_names[status] or nil
+                    if status_name == "low_power" then
+                        n.low_power = n.low_power + 1
+                    elseif status_name == "no_power" then
+                        n.no_power = n.no_power + 1
+                    end
+                    if WANTS_POWER[status_name] then
+                        local ok_u, usage = pcall(function() return e.prototype.get_max_energy_usage(e.quality) end)
+                        local ok_b, bonus = pcall(function() return e.consumption_bonus end)
+                        local factor = 1 + ((ok_b and bonus) or 0)
+                        if factor < 0.2 then factor = 0.2 end
+                        if ok_u and usage then
+                            n.demand = n.demand + usage * factor * 60
+                        end
+                    else
+                        local ok_d, drain = pcall(function() return e.prototype.electric_energy_source_prototype.drain end)
+                        if ok_d and drain then
+                            n.demand = n.demand + drain * 60
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for _, n in pairs(nets) do
+        if n.demand > 0 then
+            n.satisfaction = math.min(1, n.consumption / n.demand)
+        end
+    end
+    cache.tick, cache.surface, cache.force, cache.data = game.tick, surface.index, force.name, nets
+    return nets
+end
+
 storage.utils.serialize_entity = function(entity)
 
     if entity == nil then
@@ -829,15 +934,18 @@ storage.utils.serialize_entity = function(entity)
     end
 
     serialized.id = entity.unit_number
-    -- Special handling for power poles
+    -- Power poles: the summary of the pole's electric network (what the pole's
+    -- GUI shows). flow_rate is the network's consumption in W (5 s average);
+    -- it used to be the energy consumed since the game started, in J.
     if entity.type == "electric-pole" then
-        local stats = entity.electric_network_statistics
-        local contents_count = 0
-        for name, count in pairs(stats.input_counts) do
-            contents_count = contents_count + count
+        local ok, summaries = pcall(storage.utils.electric_network_summaries, entity.surface, entity.force)
+        local summary = ok and summaries and entity.electric_network_id and summaries[entity.electric_network_id]
+        if summary then
+            serialized.flow_rate = summary.consumption
+            serialized.network = summary
+        else
+            serialized.flow_rate = 0
         end
-
-        serialized.flow_rate = contents_count --stats.get_flow_count{name=…, input=…, precision_index=}
     end
 
     -- Add input and output positions if the entity is a splitter

@@ -1,4 +1,3 @@
-import math
 import re
 from typing import Tuple, Any, Union, Dict, Literal
 from typing import List, Optional
@@ -884,9 +883,13 @@ class OffshorePump(FluidHandler):
 
 
 class ElectricityPole(Entity, Electric):
-    """A power pole for electricity distribution."""
+    """A power pole for electricity distribution.
 
-    flow_rate: float
+    flow_rate: the consumption of the pole's electric network, in W (5 s average).
+    network: that network's summary (see ElectricityGroup)."""
+
+    flow_rate: float = 0.0
+    network: Optional[dict] = None
     _height: float = 1
     _width: float = 1
 
@@ -1062,18 +1065,45 @@ class PipeGroup(EntityGroup):
 
 
 class ElectricityGroup(EntityGroup):
-    """Represents a connected power network."""
+    """Represents a connected power network (id = electrical_id of its poles
+    and of the machines it powers).
+
+    Powers in W, energies in J, as the power pole GUI shows them:
+    production / consumption (5 s averages); demand: the rated power of the
+    consumers that are working or waiting for power, plus the drain of idle
+    ones; generator_max: the generators' rated maximum output; satisfaction:
+    consumption / demand (at most 1, None without demand); low_power / no_power:
+    how many consumers have that status. status is LOW_POWER when some
+    consumers lack power, NO_POWER when the network produces nothing for them."""
 
     name: str = "electricity-group"
     poles: List[ElectricityPole]
+    electrical_id: Optional[int] = None
+    production: Optional[float] = None
+    consumption: Optional[float] = None
+    demand: Optional[float] = None
+    generator_max: Optional[float] = None
+    satisfaction: Optional[float] = None
+    accumulator_charge: Optional[float] = None
+    accumulator_capacity: Optional[float] = None
+    consumers: Optional[int] = None
+    low_power: Optional[int] = None
+    no_power: Optional[int] = None
 
     def __repr__(self) -> str:
         positions = [f"(x={p.position.x},y={p.position.y})" for p in self.poles]
-        max_flow_rate = math.floor(max([p.flow_rate for p in self.poles]))
         if len(positions) > 6:
             positions = positions[:3] + ["..."] + positions[-3:]
         pole_summary = f"[{','.join(positions)}]"
-        return f"\tElectricityGroup(id={self.id}, poles={pole_summary}, voltage={max_flow_rate})"
+        power = ""
+        if self.production is not None:
+            power = (
+                f", production={self.production:.0f}W, consumption={self.consumption or 0:.0f}W"
+                f", demand={self.demand or 0:.0f}W"
+            )
+            if self.satisfaction is not None:
+                power += f", satisfaction={self.satisfaction:.0%}"
+        return f"\tElectricityGroup(id={self.id}, status={self.status.name}, poles={pole_summary}{power})"
 
     def __hash__(self):
         return self.name + str(self.id)

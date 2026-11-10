@@ -165,6 +165,26 @@ class ObsSpaces:
         }
     )
 
+    # Electric network summary (get_power_networks); powers in W, energies in J
+    POWER_NETWORK = spaces.Dict(
+        {
+            "id": POSITIVE_INT,
+            "production": POSITIVE_FLOAT,
+            "consumption": POSITIVE_FLOAT,
+            "demand": POSITIVE_FLOAT,
+            "generator_max": POSITIVE_FLOAT,
+            "satisfaction": SCORE_FLOAT,  # None without demand
+            "accumulator_charge": POSITIVE_FLOAT,
+            "accumulator_capacity": POSITIVE_FLOAT,
+            "poles": POSITIVE_INT,
+            "generators": POSITIVE_INT,
+            "accumulators": POSITIVE_INT,
+            "consumers": POSITIVE_INT,
+            "low_power": POSITIVE_INT,
+            "no_power": POSITIVE_INT,
+        }
+    )
+
     # Technology structure
     TECHNOLOGY = spaces.Dict(
         {
@@ -296,6 +316,8 @@ class FactorioGymEnv(gym.Env):
                 "character_positions": spaces.Sequence(ObsSpaces.CHARACTER_POSITION),
                 # Cliffs near the character, nearest first (absent if unknown)
                 "cliffs": spaces.Sequence(ObsSpaces.CLIFF),
+                # Electric networks of the force (absent if unknown)
+                "power_networks": spaces.Sequence(ObsSpaces.POWER_NETWORK),
             }
         )
 
@@ -414,6 +436,13 @@ class FactorioGymEnv(gym.Env):
         except Exception as e:
             logger.warning(f"Error getting cliffs: {e}")
 
+        # Electric networks of this agent's force (None if they can't be read)
+        power_networks = None
+        try:
+            power_networks = namespace._get_power_networks()
+        except Exception as e:
+            logger.warning(f"Error getting power networks: {e}")
+
         observation = Observation(
             raw_text=response.response if response else "",
             map_image=map_image,  # Base64 encoded PNG or empty string
@@ -430,6 +459,7 @@ class FactorioGymEnv(gym.Env):
             task_info=task_info,
             character_positions=character_positions,
             cliffs=cliffs,
+            power_networks=power_networks,
         )
 
         # Store observation for next step
