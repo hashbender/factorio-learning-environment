@@ -1019,9 +1019,24 @@ class BeltGroup(EntityGroup):
     inventory: Inventory = Inventory()
     name: str = "belt-group"
 
+    def lane_totals(self) -> Dict[str, Inventory]:
+        """Items on the group's left and right lanes (each belt's own lanes,
+        looking along its direction)."""
+        totals = {"left": Inventory(), "right": Inventory()}
+        for belt in self.belts:
+            inv = getattr(belt, "inventory", None)
+            if not isinstance(inv, dict):
+                continue
+            for lane in ("left", "right"):
+                for item, count in dict(inv.get(lane) or {}).items():
+                    if count:
+                        totals[lane][item] = totals[lane].get(item, 0) + count
+        return totals
+
     def __repr__(self) -> str:
         belt_summary = f"[{len(self.belts)} belts]"
-        return f"\n\tBeltGroup(inputs={self.inputs}, outputs={self.outputs}, inventory={self.inventory}, status={self.status}, belts={belt_summary})"
+        lanes = self.lane_totals()
+        return f"\n\tBeltGroup(inputs={self.inputs}, outputs={self.outputs}, inventory={self.inventory}, left_lane={dict(lanes['left'])}, right_lane={dict(lanes['right'])}, status={self.status}, belts={belt_summary})"
 
     def __str__(self):
         return self.__repr__()

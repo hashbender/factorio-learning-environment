@@ -68,7 +68,11 @@ def _construct_group(
                         )  # Get current value or 0 if not exists
                         inventory[item] = current_value + value  # Add new value
 
-        if any(entity.warnings and entity.warnings[0] == "full" for entity in entities):
+        # serialize.lua warns "Belt output is full" on a belt whose lanes are both
+        # backed up; the group's output is full when one of its ends is.
+        if any(
+            any("full" in str(w) for w in (entity.warnings or [])) for entity in outputs
+        ):
             status = EntityStatus.FULL_OUTPUT
         else:
             status = EntityStatus.WORKING
@@ -181,10 +185,11 @@ def consolidate_underground_belts(belt_groups):
                         if "right" in entrance.inventory:
                             if "right" in exit.inventory:
                                 right_inventory = (
-                                    exit.inventory["right"] + exit.inventory["right"]
+                                    entrance.inventory["right"]
+                                    + exit.inventory["right"]
                                 )
                             else:
-                                right_inventory = exit.inventory["right"]
+                                right_inventory = entrance.inventory["right"]
                         else:
                             if "right" in exit.inventory:
                                 right_inventory = exit.inventory["right"]

@@ -1020,8 +1020,9 @@ class TreeObservationFormatter(BasicObservationFormatter):
         """Format a value for display, cleaning up common patterns."""
         value = value.strip()
 
-        # Clean Position values
-        if "Position" in value:
+        # Clean Position values (only a single Position: a list of entities that
+        # each contain a Position must not collapse to its first position)
+        if value.startswith("Position(") and value.count("Position(") == 1:
             x_match = re.search(r"x=([\d.-]+)", value)
             y_match = re.search(r"y=([\d.-]+)", value)
             if x_match and y_match:
@@ -1571,6 +1572,131 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
         return result
 
+    # Caps for the compact belt summaries (each overflow shows "(N more)")
+    BELT_ENDS_CAP = 3
+    BELT_CONTENTS_CAP = 6
+
+    @staticmethod
+    def _attr(obj: Any, key: str, default: Any = None) -> Any:
+        """Read a field from an entity object or from its dict form."""
+        if isinstance(obj, dict):
+            if key in obj:
+                return obj[key]
+            return obj.get("_" + key, default)
+        return getattr(obj, key, default)
+
+    @staticmethod
+    def _pos_str(pos: Any) -> str:
+        if pos is None:
+            return "?"
+        if isinstance(pos, dict):
+            x, y = pos.get("x"), pos.get("y")
+        else:
+            x, y = getattr(pos, "x", None), getattr(pos, "y", None)
+        if x is None or y is None:
+            return "?"
+        return f"({float(x):.1f}, {float(y):.1f})"
+
+    @staticmethod
+    def _items_str(items: Any) -> str:
+        """{'iron-plate': 3, 'coal': 0} -> 'iron-plate:3' (zero counts dropped)."""
+        try:
+            pairs = [(k, v) for k, v in dict(items or {}).items() if v]
+        except (TypeError, ValueError):
+            return str(items)
+        return ", ".join(
+            f"{k}:{v:g}" if isinstance(v, float) else f"{k}:{v}" for k, v in pairs
+        )
+
+    @classmethod
+    def _capped(cls, parts: List[str], cap: int, sep: str = ", ") -> str:
+        shown = sep.join(parts[:cap])
+        if len(parts) > cap:
+            shown += f"{sep}({len(parts) - cap} more)"
+        return shown
+
+    @classmethod
+    def _compact_special(
+        cls, entity_name: str, entity: Dict[str, Any], formatted: Dict[str, str]
+    ) -> Dict[str, str]:
+        """Entity-specific compact views (belt groups, inserters). Facts only."""
+        try:
+            if entity_name == "belt-group" or (
+                "belts" in entity and isinstance(entity.get("belts"), list)
+            ):
+                return cls._compact_belt_group(entity, formatted)
+        except Exception:
+            return formatted
+        return formatted
+
+    @classmethod
+    def _compact_belt_group(
+        cls, entity: Dict[str, Any], formatted: Dict[str, str]
+    ) -> Dict[str, str]:
+        """A belt group as counts: belts by type, ends, per-lane totals (L/R), and
+        the belts that hold items, capped with "(N more)".
+
+        L/R are the belt's own left/right lanes looking along its direction
+        (Factorio transport lines 1 and 2)."""
+        belts = list(entity.get("belts") or [])
+        out = {k: v for k, v in formatted.items() if k not in ("belts",)}
+
+        by_type: Dict[str, int] = {}
+        lane_totals = {"left": {}, "right": {}}
+        holding = []
+        full = 0
+        for b in belts:
+            name = cls._attr(b, "name", "?")
+            by_type[name] = by_type.get(name, 0) + 1
+            inv = cls._attr(b, "inventory", {}) or {}
+            lanes = {}
+            if isinstance(inv, dict) and ("left" in inv or "right" in inv):
+                for lane in ("left", "right"):
+                    try:
+                        lanes[lane] = {
+                            k: v for k, v in dict(inv.get(lane) or {}).items() if v
+                        }
+                    except (TypeError, ValueError):
+                        lanes[lane] = {}
+                    for k, v in lanes[lane].items():
+                        lane_totals[lane][k] = lane_totals[lane].get(k, 0) + v
+            warnings = cls._attr(b, "warnings", []) or []
+            if any("full" in str(w) for w in warnings):
+                full += 1
+            if any(lanes.values()):
+                bits = []
+                if lanes.get("left"):
+                    bits.append("L[" + cls._items_str(lanes["left"]) + "]")
+                if lanes.get("right"):
+                    bits.append("R[" + cls._items_str(lanes["right"]) + "]")
+                holding.append(
+                    f"{cls._pos_str(cls._attr(b, 'position'))} " + " ".join(bits)
+                )
+
+        out["belts"] = ", ".join(f"{n}:{c}" for n, c in sorted(by_type.items())) or "0"
+        for key in ("inputs", "outputs"):
+            ends = entity.get(key)
+            if isinstance(ends, list):
+                out[key] = (
+                    "["
+                    + cls._capped(
+                        [cls._pos_str(cls._attr(e, "position")) for e in ends],
+                        cls.BELT_ENDS_CAP,
+                    )
+                    + "]"
+                )
+        out["lanes"] = (
+            f"L[{cls._items_str(lane_totals['left'])}] "
+            f"R[{cls._items_str(lane_totals['right'])}]"
+        )
+        if full:
+            out["full_belts"] = str(full)
+        if holding:
+            out["holding"] = f"{len(holding)} belts: " + cls._capped(
+                holding, cls.BELT_CONTENTS_CAP, sep="; "
+            )
+        return out
+
     @classmethod
     def format_entities(
         cls, entities: List[Any], excluded_keys: Optional[set] = None
@@ -1604,6 +1730,7 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
                 # Convert to formatted dict
                 formatted = cls.entity_dict_to_formatted(entity, excluded)
+                formatted = cls._compact_special(entity_name, entity, formatted)
 
                 if entity_name not in entity_groups:
                     entity_groups[entity_name] = []
