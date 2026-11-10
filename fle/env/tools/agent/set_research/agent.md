@@ -35,10 +35,9 @@ for ingredient in ingredients:
 
 ## Key Behaviors
 
-- Cancels any current research before setting new research
+- Cancels the current research once the checks below pass (a refused call leaves it unchanged)
 - Makes the technology the current research; other technologies in the research queue keep their order behind it
 - Validates technology prerequisites
-- Checks if required science pack recipes are unlocked
 - Returns detailed ingredient requirements for the research
 
 ## Validation Checks
@@ -50,7 +49,6 @@ The tool performs several validation checks before starting research:
 3. Checks if the technology is enabled
 4. Checks the technology is not a trigger technology (see below)
 5. Validates all prerequisites are researched
-6. Ensures required science pack recipes are available
 
 ## Error Cases
 
@@ -61,14 +59,13 @@ The tool will raise exceptions in the following situations:
 - Technology is not enabled
 - Technology is a trigger technology (the message names the game action that completes it)
 - Missing prerequisites
-- Missing required science pack recipes
 - Failed to start research
 
 Example error messages:
 
 ```python
-"Cannot research automation-2 because missing prerequisite: automation"
-"Cannot research logistics-2 because technology is not enabled"
+"Cannot start research for automation-2. Missing prerequisites: automation"
+"Technology logistics-2 is not enabled"
 ```
 
 ## Trigger Technologies
@@ -93,4 +90,3 @@ In Factorio 2.0 some technologies are not researched in labs. They have no scien
 
 - The technology must be valid and available
 - All prerequisites must be researched
-- Required science pack recipes must be unlocked
