@@ -43,17 +43,12 @@ Track the silo's status during construction:
 # Check initial state
 assert silo.rocket_parts == 0
 
-# Wait for components to be inserted
-sleep(100)  # Adjust time based on inserter speed
-
 # Get updated silo state
 silo = get_entities({Prototype.RocketSilo})[0]
 
 # Verify construction started
 assert silo.status == EntityStatus.PREPARING_ROCKET_FOR_LAUNCH
 
-# Wait for construction completion
-sleep(180)  # Adjust based on crafting speed
 silo = get_entities({Prototype.RocketSilo})[0]
 
 # Verify rocket is ready
