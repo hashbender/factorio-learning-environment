@@ -615,8 +615,8 @@ class StaticEntity(Entity):
 class Rail(Entity):
     """Railway track for trains."""
 
-    _height: float = 1
-    _width: float = 1
+    _height: float = 2
+    _width: float = 2
 
 
 class Splitter(Entity):
@@ -868,8 +868,8 @@ class HeatExchanger(Boiler):
 class Generator(FluidHandler, StaticEntity):
     """A steam generator that produces electricity."""
 
-    _height: float = 3
-    _width: float = 5
+    _height: float = 5
+    _width: float = 3
 
 
 class Pump(FluidHandler, Electric):
@@ -878,8 +878,8 @@ class Pump(FluidHandler, Electric):
     input_position: Optional[Position] = None  # Where fluid enters the pump
     output_position: Optional[Position] = None  # Where fluid leaves the pump
     flow_rate: Optional[float] = None  # Fluid pumped in the last tick, per second
-    _height: float = 1
-    _width: float = 2
+    _height: float = 2
+    _width: float = 1
 
 
 class OffshorePump(FluidHandler):
@@ -888,7 +888,7 @@ class OffshorePump(FluidHandler):
 
     flow_rate: Optional[float] = None  # Water pumped in the last tick, per second
     _height: float = 1
-    _width: float = 2
+    _width: float = 1
     pass
 
 
@@ -1166,8 +1166,8 @@ class Roboport(StaticEntity, Electric):
 class Combinator(StaticEntity):
     """Circuit network combinator (arithmetic, decider, constant)"""
 
-    _height: float = 1
-    _width: float = 2
+    _height: float = 2
+    _width: float = 1
 
 
 class TrainStop(StaticEntity, Electric):
@@ -1188,8 +1188,8 @@ class RollingStock(Entity, BurnerType):
     """Rolling stock (locomotive, cargo wagon, fluid wagon)"""
 
     inventory: Inventory = Inventory()
-    _height: float = 2
-    _width: float = 6
+    _height: float = 5
+    _width: float = 2
 
 
 class Turret(GunTurret, Electric):
@@ -1201,8 +1201,8 @@ class Turret(GunTurret, Electric):
 class FluidTurret(GunTurret, FluidHandler):
     """Fluid-based turret (flamethrower)"""
 
-    _height: float = 2
-    _width: float = 3
+    _height: float = 3
+    _width: float = 2
 
 
 class Vehicle(Entity, BurnerType):

@@ -351,11 +351,38 @@ class Prototype(enum.Enum, metaclass=PrototypeMetaclass):
 
     @property
     def WIDTH(self):
+        """Width in tiles when facing north (Factorio 2.0)."""
+        if self.value[0] in TILE_SIZES:
+            return TILE_SIZES[self.value[0]][0]
         return self.entity_class._width.default  # Access the class attribute directly
 
     @property
     def HEIGHT(self):
+        """Height in tiles when facing north (Factorio 2.0)."""
+        if self.value[0] in TILE_SIZES:
+            return TILE_SIZES[self.value[0]][1]
         return self.entity_class._height.default
+
+
+# Factorio 2.0 (width, height) in tiles, facing north, for entities whose size
+# differs from their entity class's default
+TILE_SIZES = {
+    "big-electric-pole": (2, 2),
+    "substation": (2, 2),
+    "curved-rail-a": (2, 4),
+    "constant-combinator": (1, 1),
+    "power-switch": (2, 2),
+    "locomotive": (2, 6),
+    "artillery-turret": (3, 3),
+    "tank": (2, 3),
+    "radar": (3, 3),
+    "stone-wall": (1, 1),
+    "gate": (1, 1),
+    "small-lamp": (1, 1),
+    "programmable-speaker": (1, 1),
+    "land-mine": (1, 1),
+    "display-panel": (1, 1),
+}
 
 
 prototype_by_name = {prototype.value[0]: prototype for prototype in Prototype}
