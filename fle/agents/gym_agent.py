@@ -92,6 +92,10 @@ your_code_here
 - Game speed
 - Use for timing decisions
 
+### Cliffs
+- The nearest cliffs within 40 tiles of you (up to 25), with their positions
+- Entities cannot be placed on a cliff. An error from placing an entity names the cliff that blocks it; an error from connecting entities lists the cliffs in the area between the points being connected, with their positions
+
 ## Important Notes
 - Use transport belts to keep burners fed with coal
 - Always inspect game state before making changes
