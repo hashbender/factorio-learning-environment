@@ -17,6 +17,23 @@ class MoveTo(Tool):
         self.request_path = RequestPath(connection, game_state)
         self.get_path = GetPath(connection, game_state)
 
+    def _free_start(self, start: Position):
+        """The nearest spot within 2 tiles of start where a 1x1 box fits (None if there is none),
+        with the character moved there."""
+        out = self.connection.rcon_client.send_command(
+            f"/sc local c = storage.agent_characters[{self.player_index}]; "
+            f"local p = c.surface.find_non_colliding_position('iron-chest', "
+            f"{{{float(start.x)}, {float(start.y)}}}, 2, 0.5, true); "
+            "if p then c.teleport(p); rcon.print(p.x .. ',' .. p.y) end"
+        )
+        try:
+            px, py = (float(v) for v in str(out).strip().split(","))
+        except (TypeError, ValueError):
+            return None
+        if (px, py) == (float(start.x), float(start.y)):
+            return None
+        return Position(x=px, y=py)
+
     def __call__(
         self, position: Position, laying: Prototype = None, leading: Prototype = None
     ) -> Position:
@@ -37,6 +54,9 @@ class MoveTo(Tool):
         # The path must start where the character is. move_to teleports the character along
         # the path from its first point, so a stale start moved it there for free and then
         # charged the walk from there.
+        cached = Position(
+            x=self.game_state.player_location.x, y=self.game_state.player_location.y
+        )
         start = self.character_position()
         if start is None:
             start = Position(
@@ -57,7 +77,26 @@ class MoveTo(Tool):
         try:
             self.get_path(path_handle)
         except Exception as e:
-            raise Exception(f"Could not get path to ({x}, {y}): {e}")
+            # The character can stand where the pathfinder's start box collides (at a
+            # water edge, or next to an entity it just placed). Start from the nearest
+            # free spot instead, as request_path does for the goal, and try once more.
+            snapped = self._free_start(start) if "not_found" in str(e) else None
+            if snapped is None and "not_found" in str(e) and cached != start:
+                snapped = cached  # as before: the last position move_to reached
+            if snapped is None:
+                raise Exception(f"Could not get path to ({x}, {y}): {e}")
+            start = snapped
+            self.game_state.player_location = start
+            path_handle = self.request_path(
+                start=start,
+                finish=nposition,
+                allow_paths_through_own_entities=True,
+                resolution=-1,
+            )
+            try:
+                self.get_path(path_handle)
+            except Exception as e2:
+                raise Exception(f"Could not get path to ({x}, {y}): {e2}")
 
         # Track elapsed ticks for fast forward
         ticks_before = self.game_state.instance.get_elapsed_ticks()
