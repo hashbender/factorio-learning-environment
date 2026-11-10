@@ -48,12 +48,14 @@ local function get_refinery_position_offsets(fluid_type, recipe, is_input)
                 return -1, 3   -- Top right (heavy oil)
             end
         else
-            if fluid_type == "petroleum-gas" then
-                return -2, -3     -- Bottom left
+            -- Same output ports as advanced oil processing: the products (heavy oil,
+            -- light oil, petroleum gas) fill the north-side boxes from left to right
+            if fluid_type == "heavy-oil" then
+                return -2, -3     -- North side, left
             elseif fluid_type == "light-oil" then
-                return 0, -3      -- Bottom middle
+                return 0, -3      -- North side, middle
             else
-                return 2, -3      -- Bottom right (heavy oil)
+                return 2, -3      -- North side, right (petroleum-gas)
             end
         end
     end
