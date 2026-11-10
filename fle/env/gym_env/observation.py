@@ -13,6 +13,13 @@ from fle.env.entities import Inventory
 CLIFF_RADIUS = 40
 CLIFF_LIMIT = 25
 
+# Resource reserves in the observation: whole resource patches that have a tile
+# within RESOURCE_MARGIN tiles of the area covered by the force's entities (and
+# the character), searched up to RESOURCE_RADIUS tiles from the character (the
+# radius the observation's entity listing uses)
+RESOURCE_MARGIN = 100
+RESOURCE_RADIUS = 1000
+
 
 @dataclass
 class GameInfo:
@@ -76,6 +83,9 @@ class Observation:
     # consumption, demand, satisfaction, ... per network id), or None when they
     # could not be read
     power_networks: Optional[List[Dict[str, Any]]] = None
+    # Resource patches near the factory (get_resource_reserves: name, amount,
+    # tiles, bounding box per patch), or None when they could not be read
+    resources: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, obs_dict: Dict[str, Any]) -> "Observation":
@@ -219,6 +229,7 @@ class Observation:
             character_positions=character_positions,
             cliffs=obs_dict.get("cliffs"),
             power_networks=obs_dict.get("power_networks"),
+            resources=obs_dict.get("resources"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -332,6 +343,11 @@ class Observation:
             **(
                 {"power_networks": [dict(n) for n in self.power_networks]}
                 if self.power_networks is not None
+                else {}
+            ),
+            **(
+                {"resources": dict(self.resources)}
+                if self.resources is not None
                 else {}
             ),
         }

@@ -23,6 +23,8 @@ from fle.env.gym_env.observation import (
     CharacterPosition,
     CLIFF_LIMIT,
     CLIFF_RADIUS,
+    RESOURCE_MARGIN,
+    RESOURCE_RADIUS,
 )
 
 from fle.eval.tasks import TaskABC
@@ -185,6 +187,22 @@ class ObsSpaces:
         }
     )
 
+    # Resource patch near the factory (get_resource_reserves)
+    RESOURCE_PATCH = spaces.Dict(
+        {
+            "name": SHORT_TEXT,
+            "amount": POSITIVE_FLOAT,
+            "tiles": POSITIVE_INT,
+            "x1": SCORE_FLOAT,
+            "y1": SCORE_FLOAT,
+            "x2": SCORE_FLOAT,
+            "y2": SCORE_FLOAT,
+            "infinite": BOOLEAN,
+            "normal": POSITIVE_FLOAT,
+            "clipped": BOOLEAN,
+        }
+    )
+
     # Technology structure
     TECHNOLOGY = spaces.Dict(
         {
@@ -318,6 +336,24 @@ class FactorioGymEnv(gym.Env):
                 "cliffs": spaces.Sequence(ObsSpaces.CLIFF),
                 # Electric networks of the force (absent if unknown)
                 "power_networks": spaces.Sequence(ObsSpaces.POWER_NETWORK),
+                # Resource patches near the factory (absent if unknown)
+                "resources": spaces.Dict(
+                    {
+                        "area": spaces.Dict(
+                            {
+                                "x1": ObsSpaces.SCORE_FLOAT,
+                                "y1": ObsSpaces.SCORE_FLOAT,
+                                "x2": ObsSpaces.SCORE_FLOAT,
+                                "y2": ObsSpaces.SCORE_FLOAT,
+                            }
+                        ),
+                        "buildings": ObsSpaces.POSITIVE_INT,
+                        "margin": ObsSpaces.POSITIVE_FLOAT,
+                        "radius": ObsSpaces.POSITIVE_FLOAT,
+                        "truncated": ObsSpaces.BOOLEAN,
+                        "patches": spaces.Sequence(ObsSpaces.RESOURCE_PATCH),
+                    }
+                ),
             }
         )
 
@@ -443,6 +479,15 @@ class FactorioGymEnv(gym.Env):
         except Exception as e:
             logger.warning(f"Error getting power networks: {e}")
 
+        # Resource patches near the factory (None if they can't be read)
+        resources = None
+        try:
+            resources = namespace._get_resource_reserves(
+                margin=RESOURCE_MARGIN, radius=RESOURCE_RADIUS
+            )
+        except Exception as e:
+            logger.warning(f"Error getting resource reserves: {e}")
+
         observation = Observation(
             raw_text=response.response if response else "",
             map_image=map_image,  # Base64 encoded PNG or empty string
@@ -460,6 +505,7 @@ class FactorioGymEnv(gym.Env):
             character_positions=character_positions,
             cliffs=cliffs,
             power_networks=power_networks,
+            resources=resources,
         )
 
         # Store observation for next step
