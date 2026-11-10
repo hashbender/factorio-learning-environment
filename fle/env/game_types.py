@@ -359,7 +359,8 @@ class Technology(enum.Enum):
     SolarEnergy = "solar-energy"
     ElectricEngineering = "electric-engine"
     BatteryTechnology = "battery"
-    AdvancedBattery = "battery-mk2-equipment"
+    BatteryMk2Equipment = "battery-mk2-equipment"
+    AdvancedBattery = "battery-mk2-equipment"  # alias of BatteryMk2Equipment
     NuclearPower = "nuclear-power"
 
     # Mining technologies
@@ -369,7 +370,8 @@ class Technology(enum.Enum):
 
     # Military technologies
     MilitaryScience = "military"
-    MilitaryScience2 = "military-2"
+    Military2 = "military-2"
+    MilitaryScience2 = "military-2"  # alias of Military2
     # MilitaryScience3 = "military-3"
     # MilitaryScience4 = "military-4"
     # Artillery = "artillery"
@@ -384,8 +386,10 @@ class Technology(enum.Enum):
     PowerArmor = "power-armor"
     PowerArmor2 = "power-armor-mk2"
     NightVision = "night-vision-equipment"
-    EnergyShield = "energy-shield-equipment"
-    EnergyShield2 = "energy-shield-mk2-equipment"
+    EnergyShieldEquipment = "energy-shield-equipment"
+    EnergyShield = "energy-shield-equipment"  # alias of EnergyShieldEquipment
+    EnergyShieldMk2Equipment = "energy-shield-mk2-equipment"
+    EnergyShield2 = "energy-shield-mk2-equipment"  # alias of EnergyShieldMk2Equipment
 
     # Train technologies
     RailwayTransportation = "railway"
@@ -432,8 +436,10 @@ class Technology(enum.Enum):
     FastInserter = "fast-inserter"
     BulkInserter = "bulk-inserter"
     StackInserter = "bulk-inserter"
-    StackInserterCapacity1 = "inserter-capacity-bonus-1"
-    StackInserterCapacity2 = "inserter-capacity-bonus-2"
+    InserterCapacityBonus1 = "inserter-capacity-bonus-1"
+    StackInserterCapacity1 = "inserter-capacity-bonus-1"  # alias of InserterCapacityBonus1
+    InserterCapacityBonus2 = "inserter-capacity-bonus-2"
+    StackInserterCapacity2 = "inserter-capacity-bonus-2"  # alias of InserterCapacityBonus2
 
     # Storage technologies
     StorageTanks = "fluid-handling"
@@ -457,7 +463,8 @@ class Technology(enum.Enum):
     # Misc technologies
     Landfill = "landfill"
     Toolbelt = "toolbelt"
-    ResearchSpeed = "research-speed-1"
+    ResearchSpeed1 = "research-speed-1"
+    ResearchSpeed = "research-speed-1"  # alias of ResearchSpeed1
     StoneWall = "stone-wall"
     Engine = "engine"
     # BrakinPower = "braking-force"
