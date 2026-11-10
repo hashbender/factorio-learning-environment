@@ -912,6 +912,35 @@ storage.utils.serialize_entity = function(entity)
             end
         end
 
+        -- What the inserter takes from and drops into, and what it holds. The game's
+        -- pickup_target / drop_target first; when unset (e.g. not yet updated), the
+        -- belt or inventory entity at that position. nil: ground or nothing usable.
+        local function target_name(getter, pos)
+            local ok, target = pcall(getter)
+            if ok and target and target.valid then
+                return target.name
+            end
+            if pos then
+                for _, e in pairs(entity.surface.find_entities_filtered{position = pos, limit = 5}) do
+                    -- only what an inserter can use: belts, or anything with an inventory
+                    if e.valid and e ~= entity and (e.type == "transport-belt" or e.type == "underground-belt"
+                        or e.type == "splitter" or e.type == "loader" or e.type == "loader-1x1"
+                        or (e.get_max_inventory_index() or 0) > 0) and e.type ~= "character" then
+                        return e.name
+                    end
+                end
+            end
+            return nil
+        end
+        local pickup_name = target_name(function() return entity.pickup_target end, serialized.pickup_position)
+        local drop_name = target_name(function() return entity.drop_target end, serialized.drop_position)
+        if pickup_name then serialized.pickup_target = "\""..pickup_name.."\"" end
+        if drop_name then serialized.drop_target = "\""..drop_name.."\"" end
+        local ok_held, held = pcall(function() return entity.held_stack end)
+        if ok_held and held and held.valid_for_read then
+            serialized.held_item = {name = "\""..held.name.."\"", count = held.count}
+        end
+
         local burner = entity.burner
         if burner then
             add_burner_inventory(serialized, burner)

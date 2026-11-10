@@ -1625,9 +1625,25 @@ class TreeObservationFormatter(BasicObservationFormatter):
                 "belts" in entity and isinstance(entity.get("belts"), list)
             ):
                 return cls._compact_belt_group(entity, formatted)
+            if str(entity_name).endswith("inserter") and "drop_position" in formatted:
+                return cls._compact_inserter(entity, formatted)
         except Exception:
             return formatted
         return formatted
+
+    @classmethod
+    def _compact_inserter(
+        cls, entity: Dict[str, Any], formatted: Dict[str, str]
+    ) -> Dict[str, str]:
+        """Inserter: what is at its pickup and drop positions, and what it holds."""
+        out = dict(formatted)
+        for key in ("pickup_target", "drop_target"):
+            out[key] = cls._attr(entity, key) or "none"
+        held = cls._attr(entity, "held_item")
+        out.pop("held_item", None)
+        name = cls._attr(held, "name") if held else None
+        out["held"] = f"{name}:{cls._attr(held, 'count', 1)}" if name else "empty"
+        return out
 
     @classmethod
     def _compact_belt_group(
