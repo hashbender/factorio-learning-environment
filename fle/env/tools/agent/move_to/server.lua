@@ -77,17 +77,26 @@ storage.actions.move_to = function(player_index, path_handle, trailing_entity, i
         return player.position
     end
 
-    local function rotate_entity(entity, direction)
-        local direction_map = {defines.direction.north, defines.direction.east, defines.direction.south, defines.direction.west}
-        local inserter_direction_map = {defines.direction.south, defines.direction.west, defines.direction.north, defines.direction.east}
+    -- Factorio 2.0 directions: north=0, east=4, south=8, west=12 (diagonals in between)
+    local function cardinal(direction)
+        return (math.floor(((direction or 0) % 16 + 2) / 4) % 4) * 4
+    end
 
+    local function opposite(direction)
+        return (cardinal(direction) + 8) % 16
+    end
+
+    local function rotate_entity(entity, direction)
+        local orientation = cardinal(direction)
         if entity.type == "inserter" then
-            orientation = inserter_direction_map[direction/2+1]
-        else
-            orientation = direction_map[direction/2+1]
+            orientation = opposite(direction)
         end
 
-        while entity.direction ~= orientation do
+        -- at most one full turn, so an orientation the entity can't take never hangs
+        for _ = 1, 16 do
+            if entity.direction == orientation then
+                break
+            end
             entity.rotate()
         end
     end
@@ -123,7 +132,7 @@ storage.actions.move_to = function(player_index, path_handle, trailing_entity, i
         local dir_y = dy > 0 and defines.direction.south or defines.direction.north
 
         if is_leading then
-            place(to_pos, (dir_x + 4) % 8)
+            place(to_pos, opposite(dir_x))
 
             local corner_dir
             if (dx > 0 and dy > 0) or (dx < 0 and dy < 0) then
@@ -136,7 +145,7 @@ storage.actions.move_to = function(player_index, path_handle, trailing_entity, i
                 corner_dir = defines.direction.east
             end
 
-            place(mid_pos, (corner_dir + 4) % 8)
+            place(mid_pos, opposite(corner_dir))
         else
             place(from_pos, dir_y)
 
@@ -195,9 +204,7 @@ storage.actions.move_to = function(player_index, path_handle, trailing_entity, i
                 place_diagonal(prev_pos, target_position, true)
             else
                 -- game.print("Placing at direction: " .. direction .. " Current position: " .. serpent.line(prev_pos) .. " Target position: " .. serpent.line(target_position))
-                directions = {defines.direction.north, defines.direction.east, defines.direction.south, defines.direction.west}
-                opposite_direction = {defines.direction.south, defines.direction.west, defines.direction.north, defines.direction.east}
-                new_direction = opposite_direction[direction/2+1]
+                new_direction = opposite(direction)
                 new_belt = place(target_position, new_direction)
                 if prev_belt then
                     rotate_entity(prev_belt, storage.utils.get_direction(prev_belt.position, current_position))
