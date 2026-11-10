@@ -43,3 +43,20 @@ def test_set_research_unknown_name_lists_closest_names(game):
     assert str(exc_info.value).startswith(
         "Technology research-speed does not exist. Closest technology names: research-speed-1"
     )
+
+
+def test_set_research_trigger_technology_names_the_trigger(game):
+    current_research_ingredients = game.set_research(Technology.Automation)
+
+    with pytest.raises(Exception) as exc_info:
+        game.set_research(Technology.OilProcessing)
+    assert str(exc_info.value).startswith(
+        "Cannot start research for oil-processing. It is a trigger technology, "
+        "completed by a game action instead of labs: mine crude-oil"
+    )
+
+    # The refusal comes before the current research is cancelled.
+    remaining_ingredients = game.get_research_progress()
+    assert [ingredient.model_dump() for ingredient in remaining_ingredients] == [
+        ingredient.model_dump() for ingredient in current_research_ingredients
+    ]
