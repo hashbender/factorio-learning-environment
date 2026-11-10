@@ -1,3 +1,30 @@
+-- Give the items LuaEntity.set_recipe removed from a machine to the character.
+-- Factorio 2.0 returns an array of {name, count, quality}; 1.1 returned {name = count}.
+-- Whatever doesn't fit in the character's inventory is spilled at its feet.
+local function return_removed_items(player, removed)
+    if type(removed) ~= "table" then return end
+    for key, value in pairs(removed) do
+        local stack
+        if type(value) == "table" then
+            stack = {name = value.name, count = value.count, quality = value.quality}
+        else
+            stack = {name = key, count = value}
+        end
+        if stack.name and stack.count and stack.count > 0 then
+            local inserted = player.insert(stack)
+            if inserted < stack.count then
+                stack.count = stack.count - inserted
+                player.surface.spill_item_stack{
+                    position = player.position,
+                    stack = stack,
+                    enable_looted = true,
+                    force = player.force,
+                }
+            end
+        end
+    end
+end
+
 storage.actions.set_entity_recipe = function(player_index, recipe_name, x, y)
     local player = storage.agent_characters[player_index]
     local surface = player.surface
@@ -37,7 +64,11 @@ storage.actions.set_entity_recipe = function(player_index, recipe_name, x, y)
             -- Original assembling machine logic
             local recipe = player.force.recipes[recipe_name]
             if recipe and closest_building.get_recipe() ~= recipe then
-                closest_building.set_recipe(recipe_name)
+                local removed = closest_building.set_recipe(recipe_name)
+                -- Like a player changing the recipe in the GUI: the ingredients and
+                -- products taken out of the machine go to the character, and what
+                -- doesn't fit is spilled on the ground at the character
+                return_removed_items(player, removed)
             end
             serialized = storage.utils.serialize_entity(closest_building)
         end

@@ -55,6 +55,7 @@ print(f"Set the recipe of chemical plant at {chemical_plant.position} to Sulfur"
 - If multiple machines are found, it will select the closest one
 - The recipe must be supported by the target entity, or an error will be raised
 - The tool updates the entity's recipe attribute with the new recipe name
+- Changing a machine's recipe takes out the ingredients and products inside it, as in the game: they go to your inventory, and what doesn't fit is spilled on the ground at your feet
 
 ## Error Handling
 
