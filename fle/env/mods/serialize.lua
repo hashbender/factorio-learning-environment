@@ -788,6 +788,189 @@ storage.utils.electric_network_summaries = function(surface, force)
     return nets
 end
 
+-- Status detail: the concrete reason behind an entity's status, as the game's
+-- entity window shows it (ingredient and fuel slots, the electric network, the
+-- drop or pickup target). Facts only. nil for statuses without one (working ...).
+local DETAIL_LIST_CAP = 4
+
+local function detail_num(v)
+    if v == math.floor(v) then return tostring(math.floor(v)) end
+    return string.format("%.1f", v)
+end
+
+local function detail_pos(p)
+    return "(" .. detail_num(math.floor(p.x * 2 + 0.5) / 2) .. ", " .. detail_num(math.floor(p.y * 2 + 0.5) / 2) .. ")"
+end
+
+local function detail_capped(parts)
+    local shown = {}
+    for i = 1, math.min(#parts, DETAIL_LIST_CAP) do shown[i] = parts[i] end
+    local s = table.concat(shown, ", ")
+    if #parts > DETAIL_LIST_CAP then s = s .. ", (" .. (#parts - DETAIL_LIST_CAP) .. " more)" end
+    return s
+end
+
+local function detail_contents(inventory)
+    local parts = {}
+    if inventory then
+        for name, count in pairs(storage.utils.get_contents_compat(inventory)) do
+            table.insert(parts, name .. " " .. detail_num(count))
+        end
+    end
+    table.sort(parts)
+    return parts
+end
+
+local function detail_fluid_amount(entity, name)
+    local total = 0
+    local fb = entity.fluidbox
+    if fb then
+        for i = 1, #fb do
+            local f = fb[i]
+            if f and f.name == name then total = total + f.amount end
+        end
+    end
+    return total
+end
+
+-- Recipe ingredients of `kind` ("item" / "fluid") the machine has less of than one craft needs.
+local function detail_missing_ingredients(entity, kind)
+    local ok, recipe = pcall(function() return entity.get_recipe() end)
+    if not ok or not recipe then return nil end
+    local inv
+    pcall(function()
+        inv = entity.get_inventory(entity.type == "furnace" and defines.inventory.furnace_source
+            or defines.inventory.assembling_machine_input)
+    end)
+    local parts = {}
+    for _, ing in pairs(recipe.ingredients) do
+        if ing.type == kind then
+            local have
+            if kind == "fluid" then
+                have = detail_fluid_amount(entity, ing.name)
+            else
+                have = inv and inv.get_item_count(ing.name) or 0
+            end
+            if have < ing.amount then
+                table.insert(parts, ing.name .. " (" .. detail_num(have) .. " of " .. detail_num(ing.amount) .. " per craft)")
+            end
+        end
+    end
+    if #parts == 0 then return nil end
+    return "missing " .. detail_capped(parts)
+end
+
+local function detail_power(entity, what)
+    local ok, id = pcall(function() return entity.electric_network_id end)
+    if ok and id then return what .. " (electric network " .. id .. ")" end
+    return what .. " (not connected to an electric network)"
+end
+
+-- What is at an inserter's or drill's drop / pickup position (the game's target first).
+local function detail_target(entity, getter, pos, verb)
+    local ok, target = pcall(getter)
+    if not (ok and target and target.valid) and pos then
+        for _, e in pairs(entity.surface.find_entities_filtered{position = pos, limit = 5}) do
+            if e.valid and e ~= entity and e.type ~= "character" and e.type ~= "item-entity" then
+                target = e
+                break
+            end
+        end
+    end
+    if target and target.valid then
+        return verb .. " " .. target.name .. " at " .. detail_pos(target.position)
+    end
+    if not pos then return nil end
+    local text = verb .. " " .. detail_pos(pos) .. ": no entity there"
+    local ground = entity.surface.find_entities_filtered{position = pos, type = "item-entity", limit = 1}[1]
+    if ground and ground.valid and ground.stack and ground.stack.valid_for_read then
+        text = text .. ", " .. ground.stack.name .. " on the ground"
+    end
+    return text
+end
+
+local function detail_text(entity)
+    local ok, s = pcall(function() return entity.status end)
+    if not ok or not s then return nil end
+    local S = defines.entity_status
+    if s == S.item_ingredient_shortage then
+        return detail_missing_ingredients(entity, "item")
+    elseif s == S.fluid_ingredient_shortage or s == S.missing_required_fluid then
+        return detail_missing_ingredients(entity, "fluid")
+    elseif s == S.no_power then
+        return detail_power(entity, "no power")
+    elseif s == S.low_power then
+        return detail_power(entity, "low power")
+    elseif s == S.not_plugged_in_electric_network then
+        return "not connected to an electric network"
+    elseif s == S.full_output then
+        local inv = entity.get_output_inventory()
+        local parts = detail_contents(inv)
+        if #parts == 0 then return "output full" end
+        return "output full (" .. detail_capped(parts) .. ")"
+    elseif s == S.full_burnt_result_output then
+        local parts = detail_contents(entity.burner and entity.burner.burnt_result_inventory)
+        return "burnt result full (" .. detail_capped(parts) .. ")"
+    elseif s == S.no_recipe then
+        return "no recipe set"
+    elseif s == S.no_fuel then
+        local parts = detail_contents(entity.burner and entity.burner.inventory)
+        if #parts == 0 then return "no fuel (fuel slot empty)" end
+        return "no fuel (fuel slot: " .. detail_capped(parts) .. ")"
+    elseif s == S.waiting_for_space_in_destination then
+        local ok_p, pos = pcall(function() return entity.drop_position end)
+        return detail_target(entity, function() return entity.drop_target end, ok_p and pos or nil,
+            "waiting for space in")
+    elseif s == S.waiting_for_source_items then
+        local ok_p, pos = pcall(function() return entity.pickup_position end)
+        return detail_target(entity, function() return entity.pickup_target end, ok_p and pos or nil,
+            "waiting for items from")
+    elseif s == S.no_minable_resources then
+        local r
+        pcall(function() r = entity.prototype.get_mining_drill_radius(entity.quality) end)
+        if not r then pcall(function() r = entity.prototype.mining_drill_radius end) end
+        if not r then return "no minable resources in the mining area" end
+        local p = entity.position
+        return "no minable resources in the mining area " .. detail_pos({x = p.x - r, y = p.y - r})
+            .. " to " .. detail_pos({x = p.x + r, y = p.y + r})
+    elseif s == S.missing_science_packs then
+        local tech = entity.force.current_research
+        if not tech then return nil end
+        local inv = entity.get_inventory(defines.inventory.lab_input)
+        local parts = {}
+        for _, ing in pairs(tech.research_unit_ingredients) do
+            local have = inv and inv.get_item_count(ing.name) or 0
+            if have < ing.amount then
+                table.insert(parts, ing.name .. " (" .. detail_num(have) .. " of " .. detail_num(ing.amount) .. ")")
+            end
+        end
+        if #parts == 0 then return nil end
+        return "missing " .. detail_capped(parts) .. " for " .. tech.name
+    elseif s == S.no_input_fluid or s == S.low_input_fluid then
+        local fb = entity.fluidbox
+        local what = (s == S.no_input_fluid) and "no input fluid" or "low input fluid"
+        if fb and #fb > 0 then
+            local f = fb[1]
+            local name = f and f.name
+            if not name then
+                local ok_f, filter = pcall(function() return fb.get_filter(1) end)
+                name = ok_f and filter and filter.name or nil
+            end
+            if name then
+                return what .. " (" .. name .. " " .. detail_num(f and f.amount or 0) .. ")"
+            end
+        end
+        return nil
+    end
+    return nil
+end
+
+storage.utils.status_detail = function(entity)
+    local ok, text = pcall(detail_text, entity)
+    if ok and text then return text end
+    return nil
+end
+
 storage.utils.serialize_entity = function(entity)
 
     if entity == nil then
@@ -1661,6 +1844,11 @@ storage.utils.serialize_entity = function(entity)
             end
             table.insert(serialized.warnings, "\"steam output point was filtered due to being blocked by water\"")
         end
+    end
+
+    local detail = storage.utils.status_detail(entity)
+    if detail then
+        serialized.status_detail = "\"" .. detail .. "\""
     end
 
     return serialized

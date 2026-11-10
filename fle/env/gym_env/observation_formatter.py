@@ -1926,6 +1926,10 @@ class TreeObservationFormatter(BasicObservationFormatter):
             if clean_key.startswith("__"):
                 continue
 
+            # Only entities whose status has a reason carry a status detail
+            if clean_key == "status_detail" and not value:
+                continue
+
             # Format the value
             result[clean_key] = cls.format_value_from_object(clean_key, value, uncapped)
 

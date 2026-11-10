@@ -42,3 +42,7 @@ belts = connect_entities(
 **Outdated variables**
 
 - Regularly update your variables using entity = get_entity(Prototype.X, entity.position)
+
+**Status detail**
+
+- When an entity's `status` has a concrete reason, `status_detail` gives it, as the game's entity window shows it: the missing ingredients with the count in the machine and the count one craft needs (`missing iron-plate (0 of 1 per craft)`), the electric network (`no power (electric network 7)`), the output contents (`output full (iron-gear-wheel 100)`), the fuel slot, the drop or pickup target (`waiting for space in iron-chest at (3.5, 4.5)`), or the mining area. Otherwise `status_detail` is None.
