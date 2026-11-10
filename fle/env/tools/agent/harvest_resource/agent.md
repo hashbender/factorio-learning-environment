@@ -1,6 +1,6 @@
 # harvest_resource
 
-The `harvest_resource` tool allows you to harvest resources like ores, trees, rocks and stumps from the Factorio world. This guide explains how to use it effectively.
+The `harvest_resource` tool allows you to harvest resources like ores, trees and rocks from the Factorio world. This guide explains how to use it effectively.
 
 ## Basic Usage
 
@@ -58,9 +58,8 @@ The tool can harvest:
 2. Trees (Resource.Wood)
 
 - Harvesting trees yields wood
-- Creates stumps that can be harvested again
+- A harvested tree may leave a stump; stumps are decoration and cannot be harvested
 
-3. Rocks and Stumps
+3. Rocks
 
-- Rock harvesting yields stone
-- Stump harvesting yields additional wood
+- Rocks yield stone; huge rocks also yield coal. Amounts are rolled per rock, as in the game
