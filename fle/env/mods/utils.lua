@@ -341,3 +341,28 @@ storage.utils.format_inventory_for_error = function(player)
 
     return table.concat(items, ", ")
 end
+
+-- Factorio 2.0 builds assembling machines 2 and 3 facing north unless their
+-- recipe uses a fluid (fluid_boxes_off_when_no_fluid_recipe), and machines
+-- without fluid boxes (assembling-machine-1, centrifuge) always face north, so
+-- the requested direction can be dropped by the game. Say so on the result
+-- rather than return a machine that silently faces another way.
+storage.utils.note_dropped_direction = function(serialized, placed, requested_direction)
+    if type(serialized) ~= "table" or not (placed and placed.valid) then
+        return serialized
+    end
+    if placed.type ~= "assembling-machine" or placed.direction == requested_direction then
+        return serialized
+    end
+    local msg
+    if #placed.prototype.fluidbox_prototypes == 0 then
+        msg = placed.name .. " was placed facing north: it has no fluid connections, so it always faces north"
+    else
+        msg = placed.name .. " was placed facing north: it takes a direction only while its recipe uses a fluid"
+    end
+    if type(serialized.warnings) ~= "table" then
+        serialized.warnings = {}
+    end
+    table.insert(serialized.warnings, "\"" .. msg .. "\"")
+    return serialized
+end
