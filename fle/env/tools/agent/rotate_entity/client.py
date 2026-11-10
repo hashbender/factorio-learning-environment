@@ -54,6 +54,9 @@ class RotateEntity(Tool):
 
             if not response:
                 raise Exception(f"Could not rotate: {response}")
+            if isinstance(response, str):
+                # the server raised (out of reach, no entity, invalid direction, ...)
+                raise Exception(f"Could not rotate: {self.get_error_message(response)}")
 
         except Exception as e:
             raise e
