@@ -155,8 +155,8 @@ def test_within_lists_every_belt_when_it_fits():
     text = T.format_entities_within(ents, 100_000)
     assert "more)" not in text
     assert "holding=10 belts:" in text
-    assert text.count("L[iron-plate:") == 10
-    assert "belt_positions=EAST (0.5..9.5 by 1, 0.5)" in text
+    assert text.count("L[iron-plate:") == 10 + 1  # every belt, plus the lane total
+    assert f"belt_positions={Direction.EAST.name} (0.5..9.5 by 1, 0.5)" in text
 
 
 def test_belt_factory_fits_and_says_what_was_summarized():
