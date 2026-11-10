@@ -29,7 +29,11 @@ class GetResourcePatch(Tool):
         )
 
         if not isinstance(response, dict) or response == {}:
-            top_level_message = str(response).split(":")[-1].strip()
+            top_level_message = (
+                self.get_error_message(str(response))
+                if response != {}
+                else "the game returned nothing"
+            )
             raise Exception(
                 f"Could not get {resource[0]} at {position}: {top_level_message}"
             )

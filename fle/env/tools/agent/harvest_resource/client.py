@@ -53,8 +53,12 @@ class HarvestResource(Tool):
             sleep(real_world_sleep)
 
         if response != {} and response == 0 or isinstance(response, str):
-            msg = response.split(":")[-1].strip()
-            raise Exception(f"Could not harvest. {msg}")
+            msg = (
+                self.get_error_message(response)
+                if isinstance(response, str)
+                else "the game harvested nothing"
+            )
+            raise Exception(f"Could not harvest at ({x}, {y}): {msg}")
 
         # If `fast` is turned off - we need to long poll the game state to ensure the player has moved
         if not self.game_state.instance.fast:

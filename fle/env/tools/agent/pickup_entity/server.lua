@@ -10,12 +10,13 @@ storage.actions.pickup_entity = function(player_index, x, y, entity, check_reach
     -- game.print("Starting pickup attempt for " .. entity .. " at (" .. x .. ", " .. y .. ")")
 
     -- Function to check if player can receive items
+    -- Returns false and the first item that does not fit
     local function can_receive_items(items_to_check)
         local main_inventory = player.get_main_inventory()
         -- Check each item individually
         for _, item in pairs(items_to_check) do
             if not main_inventory.can_insert({name = item.name, count = item.count}) then
-                return false
+                return false, item
             end
         end
         return true
@@ -34,6 +35,9 @@ storage.actions.pickup_entity = function(player_index, x, y, entity, check_reach
             if ent.valid and ent.name == entity then
                 -- game.print("Found valid placed entity: " .. ent.name)
                 check_within_reach(ent)
+                if not ent.can_be_destroyed() then
+                    error(ent.name .. " at (" .. ent.position.x .. ", " .. ent.position.y .. ") cannot be picked up right now (the game refuses to remove it)")
+                end
 
                 -- Collect all items that need to be inserted
                 local items_to_insert = {}
@@ -87,8 +91,9 @@ storage.actions.pickup_entity = function(player_index, x, y, entity, check_reach
                 table.insert(items_to_insert, {name=item_name, count=item_count})
 
                 -- Check if player can receive all items
-                if not can_receive_items(items_to_insert) then
-                    error("Inventory is full")
+                local fits, item = can_receive_items(items_to_insert)
+                if not fits then
+                    error("Your inventory is full: no room for " .. item.count .. " " .. item.name .. " from " .. ent.name)
                 end
 
                 -- Insert all items
@@ -126,7 +131,6 @@ storage.actions.pickup_entity = function(player_index, x, y, entity, check_reach
                     return true
                 end
             end
-            return true
         end
         return false
     end
@@ -166,10 +170,10 @@ storage.actions.pickup_entity = function(player_index, x, y, entity, check_reach
     end
 
     if not success then
-        if #player_entities == 0 and #ground_items == 0 then
-            error("Couldn't find "..entity.." at position ("..x..", "..y..") to pick up.")
+        if #player_entities == 0 then
+            error("Couldn't find "..entity.." at position ("..x..", "..y..") to pick up (nothing of that name placed or on the ground within 0.7 tiles).")
         else
-            error("Could not pick up "..entity)
+            error("Could not pick up "..entity.." at ("..x..", "..y.."): the game removed nothing")
         end
     end
 

@@ -468,14 +468,15 @@ storage.actions.harvest_resource = function(player_index, x, y, count, radius)
 
     local distance = math.sqrt((position.x - player_position.x)^2 + (position.y - player_position.y)^2)
     if distance > player.resource_reach_distance then
-        error("Nothing within reach to harvest")
+        error(string.format("\"(%s, %s) is %.1f tiles from your position (%.1f, %.1f); your mining reach is %s tiles, move closer\"",
+            position.x, position.y, distance, player_position.x, player_position.y, player.resource_reach_distance))
     end
 
     local surface = player.surface
     local target_type, target_name = find_entity_type_at_position(surface, position)
 
     if not target_type then
-        error("Nothing within reach to harvest")
+        error(string.format("\"Nothing to harvest within 1.5 tiles of (%s, %s): no resource, tree or rock there\"", position.x, position.y))
     end
 
     --if not storage.fast then
@@ -523,7 +524,12 @@ storage.actions.harvest_resource = function(player_index, x, y, count, radius)
     end
 
     if total_yield == 0 then
-        error("Nothing within reach to harvest")
+        local reason = ""
+        if target_name and not player.can_insert({name = target_name, count = 1}) and prototypes.item[target_name] then
+            reason = "; your inventory has no room for " .. target_name
+        end
+        error(string.format("\"Harvested nothing from %s at (%s, %s) within radius %s%s\"",
+            tostring(target_name or target_type), position.x, position.y, tostring(radius), reason))
     else
         -- game.print("Harvested resources yielding " .. total_yield .. " items")
         return total_yield

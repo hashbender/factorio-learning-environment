@@ -22,10 +22,18 @@ storage.actions.inspect_inventory = function(player_index, is_character_inventor
        local closest_entity = nil
 
        local area = {{position.x - 2, position.y - 2}, {position.x + 2, position.y + 2}}
-       local buildings = surface.find_entities_filtered({ area = area, force = "player", name = entity })
+       local buildings
+       if entity and entity ~= "" then
+           buildings = surface.find_entities_filtered({ area = area, force = "player", name = entity })
+       else
+           buildings = surface.find_entities_filtered({ area = area, force = "player" })
+       end
+       local what = (entity and entity ~= "") and entity or "entity"
+       local where = "(" .. position.x .. ", " .. position.y .. ")"
        -- game.print("Found "..#buildings.. " "..entity)
        for _, building in ipairs(buildings) do
-           if building.name ~= 'character' then
+           -- with only a position, take the nearest entity that has an inventory
+           if building.name ~= 'character' and (what ~= "entity" or building.get_max_inventory_index() > 0) then
                local distance = ((position.x - building.position.x) ^ 2 + (position.y - building.position.y) ^ 2) ^ 0.5
                if distance < closest_distance then
                    closest_distance = distance
@@ -35,10 +43,10 @@ storage.actions.inspect_inventory = function(player_index, is_character_inventor
        end
        
        if closest_entity == nil then
-           error("No entity at given coordinates.")
+           error("\"No " .. what .. " within 2 tiles of " .. where .. "\"")
        end
        if not closest_entity or not closest_entity.valid then
-           error("No valid entity at given coordinates.")
+           error("\"The " .. what .. " near " .. where .. " is no longer valid\"")
        end
 
        if not is_fast then
@@ -56,24 +64,29 @@ storage.actions.inspect_inventory = function(player_index, is_character_inventor
        -- Factorio 2.0: unified crafter_input/crafter_output for furnaces, assemblers, rocket silos
        if closest_entity.type == "furnace" or closest_entity.type == "assembling-machine" or closest_entity.type == "rocket-silo" then
            if not closest_entity or not closest_entity.valid then
-               error("No valid entity at given coordinates.")
+               error("\"The " .. what .. " near " .. where .. " is no longer valid\"")
            end
            local source = storage.utils.get_contents_compat(closest_entity.get_inventory(defines.inventory.crafter_input))
            local output = storage.utils.get_contents_compat(closest_entity.get_inventory(defines.inventory.crafter_output))
            for k, v in pairs(output) do
                source[k] = (source[k] or 0) + v
            end
+           -- a burner furnace's fuel is part of what it holds
+           local fuel = storage.utils.get_contents_compat(closest_entity.get_fuel_inventory())
+           for k, v in pairs(fuel) do
+               source[k] = (source[k] or 0) + v
+           end
            return source
        end
        if closest_entity.type == "lab" then
            if not closest_entity or not closest_entity.valid then
-               error("No valid entity at given coordinates.")
+               error("\"The " .. what .. " near " .. where .. " is no longer valid\"")
            end
            return storage.utils.get_contents_compat(closest_entity.get_inventory(defines.inventory.lab_input))
        end
        -- Note: centrifuge is now handled by the unified assembling-machine block above
        if not closest_entity or not closest_entity.valid then
-           error("No valid entity at given coordinates.")
+           error("\"The " .. what .. " near " .. where .. " is no longer valid\"")
        end
        return storage.utils.get_contents_compat(closest_entity.get_inventory(defines.inventory.chest))
     end

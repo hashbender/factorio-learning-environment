@@ -32,7 +32,7 @@ class SetEntityRecipe(Tool):
 
         if not isinstance(response, dict):
             raise Exception(
-                f"Could not set recipe to {name}" + str(response).split(":")[-1].strip()
+                f"Could not set recipe to {name}: {self.get_error_message(str(response))}"
             )
 
         cleaned_response = self.clean_response(response)

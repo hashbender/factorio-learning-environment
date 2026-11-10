@@ -39,13 +39,19 @@ class InspectInventory(Tool):
         else:
             x, y = 0, 0
 
+        # A Position has no name: the server then takes any entity at that spot
+        target_name = entity.name if isinstance(entity, Entity) else ""
         response, execution_time = self.execute(
-            self.player_index, entity is None, x, y, entity.name if entity else ""
+            self.player_index, entity is None, x, y, target_name
         )
 
         if not isinstance(response, dict):
             if entity:
-                raise Exception(f"Could not inspect inventory of {entity}.", response)
+                what = target_name or "an entity"
+                raise Exception(
+                    f"Could not inspect inventory of {what} at ({x}, {y}): "
+                    f"{self.get_error_message(str(response))}"
+                )
             else:
                 # raise Exception("Could not inspect None inventory.", response)
                 return Inventory()

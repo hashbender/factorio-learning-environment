@@ -49,9 +49,54 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
     local position = {x=x, y=y}
     local surface = player.surface
 
+    local function fmt_pos(p)
+        return string.format("(%s, %s)", p.x, p.y)
+    end
+
+    -- Short list of what an entity holds, e.g. "iron-ore:4, coal:2" (or "nothing")
+    local function contents_of(entity)
+        local counts, order = {}, {}
+        for index = 1, entity.get_max_inventory_index() do
+            local inventory = entity.get_inventory(index)
+            if inventory then
+                for name, n in pairs(storage.utils.get_contents_compat(inventory)) do
+                    if not counts[name] then table.insert(order, name) end
+                    counts[name] = (counts[name] or 0) + n
+                end
+            end
+        end
+        local parts = {}
+        for i, name in ipairs(order) do
+            if i > 6 then
+                table.insert(parts, "(" .. (#order - 6) .. " more)")
+                break
+            end
+            table.insert(parts, name .. ":" .. counts[name])
+        end
+        return #parts > 0 and table.concat(parts, ", ") or "nothing"
+    end
+
+    local belt_types = {["transport-belt"] = true, ["underground-belt"] = true, ["splitter"] = true}
+
+    -- Items of one kind on a belt's transport lines
+    local function belt_count(belt, item_name)
+        local n = 0
+        for line = 1, belt.get_max_transport_line_index() do
+            n = n + belt.get_transport_line(line).get_item_count(item_name)
+        end
+        return n
+    end
+
     -- First validate the request
     if count <= 0 then
-        error("\"Invalid count: must be greater than 0\"")
+        error("\"Invalid count " .. tostring(count) .. ": the quantity must be greater than 0\"")
+    end
+
+    -- An entity source means that entity: look at its own tile first
+    local exact = nil
+    if source_name ~= nil then
+        local here = surface.find_entities_filtered{position = position, name = source_name, limit = 1}
+        exact = here[1]
     end
 
     -- Find all entities in range
@@ -60,7 +105,9 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
                   {position.x + search_radius, position.y + search_radius}}
     local buildings = nil
 
-    if source_name ~= nil then
+    if exact then
+        buildings = {exact}
+    elseif source_name ~= nil then
         buildings = surface.find_entities_filtered{
             area = area,
             name = source_name
@@ -74,18 +121,23 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
     -- Find the closest building with the item we want
     local closest_distance = math.huge
     local closest_entity = nil
-    local found_any_items = false
+    local belt_with_item = nil
 
     for _, building in ipairs(buildings) do
         if building.name ~= 'character' then
-            local item_count = building.get_item_count(extract_item)
-            if item_count > 0 then
-                found_any_items = true
-                local distance = ((position.x - building.position.x) ^ 2 +
-                                (position.y - building.position.y) ^ 2) ^ 0.5
-                if distance < closest_distance then
-                    closest_distance = distance
-                    closest_entity = building
+            if belt_types[building.type] then
+                if not belt_with_item and belt_count(building, extract_item) > 0 then
+                    belt_with_item = building
+                end
+            else
+                local item_count = building.get_item_count(extract_item)
+                if item_count > 0 then
+                    local distance = ((position.x - building.position.x) ^ 2 +
+                                    (position.y - building.position.y) ^ 2) ^ 0.5
+                    if distance < closest_distance then
+                        closest_distance = distance
+                        closest_entity = building
+                    end
                 end
             end
         end
@@ -94,23 +146,33 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
     -- Error handling in priority order
 
     if #buildings == 0 then
-        error("\"Could not find any entities in range\"")
+        if source_name then
+            error("\"No " .. source_name .. " within " .. search_radius .. " tiles of " .. fmt_pos(position) .. "\"")
+        end
+        error("\"No entity within " .. search_radius .. " tiles of " .. fmt_pos(position) .. "\"")
     end
 
     if not closest_entity then
+        if exact and belt_types[exact.type] or (not exact and belt_with_item) then
+            local belt = exact or belt_with_item
+            error("\"extract_item takes items from entity inventories; " .. belt.name .. " at " .. fmt_pos(belt.position) ..
+                " has no inventory (" .. belt_count(belt, extract_item) .. " " .. extract_item ..
+                " on its lanes; items on belts are not extracted)\"")
+        end
+        if exact then
+            error("\"" .. exact.name .. " at " .. fmt_pos(exact.position) .. " has no " .. extract_item ..
+                " (it holds " .. contents_of(exact) .. ")\"")
+        end
+        local where = search_radius .. " tiles of " .. fmt_pos(position)
         if source_name then
-            error("\"Could not find a valid "..source_name.." entity containing " .. extract_item.."\"")
+            error("\"No " .. source_name .. " within " .. where .. " holds " .. extract_item .. "\"")
         else
-            error("\"Could not find a valid entity containing " .. extract_item .. "\"")
+            error("\"No entity within " .. where .. " holds " .. extract_item .. "\"")
         end
     end
 
     if not player.can_reach_entity(closest_entity) then
-        error("\"Entity at ("..closest_entity.position.x..", "..closest_entity.position.y..") is too far away from your position of ("..player.position.x..","..player.position.y.."), move closer.\"")
-    end
-
-    if not found_any_items then
-        error("\"No " .. extract_item .. " found in any nearby entities\"")
+        error("\"" .. closest_entity.name .. " at ("..closest_entity.position.x..", "..closest_entity.position.y..") is too far away from your position of ("..player.position.x..","..player.position.y.."), move closer.\"")
     end
 
     -- Calculate how many items we can actually extract
@@ -124,7 +186,12 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
         -- game.print("Extracted " .. number_extracted .. " " .. extract_item)
         return number_extracted
     else
-        -- Nothing could be moved (e.g. the player's inventory is full)
-        error("\"Failed to extract " .. extract_item .. "\"")
+        -- Nothing could be moved
+        if not player.can_insert({name = extract_item, count = 1}) then
+            error("\"Failed to extract " .. extract_item .. " from " .. closest_entity.name .. " at " ..
+                fmt_pos(closest_entity.position) .. ": your inventory has no room for it\"")
+        end
+        error("\"Failed to extract " .. extract_item .. " from " .. closest_entity.name .. " at " ..
+            fmt_pos(closest_entity.position) .. "\"")
     end
 end

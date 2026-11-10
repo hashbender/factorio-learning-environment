@@ -20,6 +20,11 @@ The function returns the number of items successfully extracted. The extracted i
 - `source`: Either a Position or Entity to extract from (required)
 - `quantity`: Number of items to extract (default=5)
 
+**Source Handling**
+
+- With an Entity, items come from that entity (if it is gone, from the nearest entity of the same name within 10 tiles that holds the item); with a Position, from the nearest entity within 10 tiles that holds the item
+- Items on belts are not in an inventory and are not extracted
+
 **Quantity Handling**
 
 - If requested quantity exceeds available items, it extracts all available items

@@ -62,11 +62,9 @@ class PlaceObject(Tool):
                 self.player_index, name, factorio_direction, x, y, exact
             )
         except Exception as e:
-            try:
-                msg = self.get_error_message(str(e))
-                raise Exception(f"Could not place {name} at ({x}, {y}), {msg}")
-            except Exception:
-                raise Exception(f"Could not place {name} at ({x}, {y})", e)
+            raise Exception(
+                f"Could not place {name} at ({x}, {y}), {self.get_error_message(str(e))}"
+            ) from e
 
         # If we are in `slow` mode, there is a delay between placing the entity and the entity being created
         if not self.game_state.instance.fast:
@@ -74,16 +72,7 @@ class PlaceObject(Tool):
             return self.get_entity(entity, position)
         else:
             if not isinstance(response, dict):
-                try:
-                    msg = (
-                        str(response)
-                        .split(":")[-1]
-                        .replace('"', "")
-                        .replace("'", "")
-                        .strip()
-                    )
-                except:
-                    msg = str(response).lstrip()
+                msg = self.get_error_message(str(response))
                 raise Exception(f"Could not place {name} at ({x}, {y}), {msg}")
 
             cleaned_response = self.clean_response(response)
