@@ -171,9 +171,12 @@ print(f"Final connection after connecting all inserters to target: {main_connect
 
 When you want to connect entities to existing power pole groups, similar rules apply.
 
-Assume in this example there is a steam engine at Position(x = 1, y = 2), `drill_1` is at Position(x = 10, y = 28) and `drill_2` is at Position(x = 15, y = 28)
+Assume in this example there is a steam engine at Position(x = 1, y = 2) and the drills are at Position(x = 10, y = 28) and Position(x = 16, y = 28)
 
 ```python
+steam_engine = get_entity(Prototype.SteamEngine, Position(x = 1, y = 2))
+drill_1 = get_entity(Prototype.ElectricMiningDrill, Position(x = 10, y = 28))
+drill_2 = get_entity(Prototype.ElectricMiningDrill, Position(x = 16, y = 28))
 # create the main connection
 main_power_connection = connect_entities(steam_engine,
                                     drill_1,
