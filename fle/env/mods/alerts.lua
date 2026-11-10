@@ -43,76 +43,46 @@ local function is_transport_belt_blocked(entity)
     return false
 end
 
+-- Labels for full inventories, by entity type and the game's inventory name.
+-- Factorio 2.0 inventory indices overlap (fuel = chest = turret_ammo = 1,
+-- furnace_source = assembling_machine_input = lab_input = 2), so inventories
+-- are named with LuaEntity.get_inventory_name rather than by index.
+local full_inventory_labels = {
+    ["furnace"] = {fuel = "furnace fuel source", crafter_input = "furnace source", crafter_output = "furnace result"},
+    ["assembling-machine"] = {crafter_input = "assembler input", crafter_output = "assembler output"},
+    ["rocket-silo"] = {
+        crafter_input = "rocket silo input",
+        crafter_output = "rocket silo output",
+        rocket_silo_rocket = "rocket",
+    },
+    ["container"] = {chest = "chest storage"},
+}
+local default_full_inventory_labels = {fuel = "fuel source", burnt_result = "burnt result"}
+
 -- Define a function to check if an entity is full
 local function is_full(entity)
-    -- Map inventory types to string names
-    local inventory_names = {
-        [defines.inventory.rocket_silo_rocket] = "rocket",
-        [defines.inventory.rocket_silo_input] = "rocket input",
-        [defines.inventory.rocket_silo_output] = "rocket output",
-        [defines.inventory.rocket_silo_modules] = "rocket modules",
-        [defines.inventory.fuel] = "fuel source",
-        [defines.inventory.burnt_result] = "burnt result",
-        [defines.inventory.assembling_machine_input] = "assembling machine input",
-        [defines.inventory.assembling_machine_output] = "assembling machine output",
-        [defines.inventory.chest] = "chest",
-        [defines.inventory.furnace_source] = "furnace source",
-        [defines.inventory.furnace_result] = "furnace result",
-    }
-
     local full_inventories = {}
+    local labels = full_inventory_labels[entity.type] or {}
 
-    -- Iterate over all possible inventory types
-    for inventory_id, inventory_name in pairs(inventory_names) do
+    for inventory_id = 1, entity.get_max_inventory_index() do
         local inventory = entity.get_inventory(inventory_id)
-        -- Check if the entity has this type of inventory and if it's full
-        if inventory and #inventory > 0 then
+        local game_name = inventory and entity.get_inventory_name(inventory_id)
+        -- Module and trash slots being full is not a problem for the machine
+        if game_name and not game_name:find("modules") and not game_name:find("trash") and #inventory > 0 then
+            local full = true
             for i = 1, #inventory do
                 -- Check if the slot is completely filled
                 local stack = inventory[i]
                 if not stack.valid_for_read or stack.count < stack.prototype.stack_size then  -- Slot is not completely filled
-                    goto continue
+                    full = false
+                    break
                 end
             end
 
-            -- Determine a more specific message depending on the entity type
-            if entity.type == "furnace" then
-                if inventory_id == defines.inventory.fuel then
-                    inventory_name = "furnace fuel source"
-                elseif inventory_id == defines.inventory.furnace_source then
-                    inventory_name = "furnace source"
-                elseif inventory_id == defines.inventory.furnace_result then
-                    inventory_name = "furnace result"
-                end
-            elseif entity.type == "assembling-machine" then
-                if inventory_id == defines.inventory.assembling_machine_input then
-                    inventory_name = "assembler input"
-                elseif inventory_id == defines.inventory.assembling_machine_output then
-                    inventory_name = "assembler output"
-                end
-            elseif entity.type == "rocket-silo" then
-                if inventory_id == defines.inventory.rocket_silo_input then
-                    inventory_name = "rocket silo input"
-                elseif inventory_id == defines.inventory.rocket_silo_output then
-                    inventory_name = "rocket silo output"
-                elseif inventory_id == defines.inventory.rocket_silo_modules then
-                    inventory_name = "rocket silo modules"
-                elseif inventory_id == defines.inventory.rocket then
-                    inventory_name = "rocket"
-                end
-            elseif entity.type == "mining-drill" then
-                if inventory_id == defines.inventory.chest then
-                    inventory_name = "fuel source"
-                end
-            elseif entity.type == "chest" then
-                if inventory_id == defines.inventory.chest then
-                    inventory_name = "chest storage"
-                end
+            if full then
+                local inventory_name = labels[game_name] or default_full_inventory_labels[game_name] or game_name:gsub("_", " ")
+                table.insert(full_inventories, inventory_name .. " is full")  -- Add the name of the full inventory to the list
             end
-
-            table.insert(full_inventories, inventory_name .. " is full")  -- Add the name of the full inventory to the list
-
-            ::continue::
         end
     end
 
