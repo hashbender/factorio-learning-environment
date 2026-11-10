@@ -5,15 +5,17 @@ from typing import List
 from fle.env.entities import Position
 from fle.env.tools import Tool
 
-# Default budget: 120 backoff polls (~115s wall-clock) instead of 10 (~6.5s).
-# Long-distance move_to on fresh worlds has to wait for Factorio's
-# chunk-generation before A* can start; 10 polls is not enough, and
-# empirically 30 and 60 still miss occasionally. Override at runtime with
-# `FLE_GETPATH_MAX_ATTEMPTS`.
+# Default budget: 45 backoff polls (~41s wall-clock). 10 polls (~6.5s) was too
+# few for long-distance move_to on fresh worlds, which must wait for Factorio's
+# chunk generation before A* can start (30 and 60 were seen to miss
+# occasionally there); 120 (~115s) can use up an agent's whole program on a
+# path that is still pending. request_path also raises the pathfinder's
+# per-tick budget, so paths resolve sooner at low game speeds. Override at
+# runtime with `FLE_GETPATH_MAX_ATTEMPTS` (e.g. 120 for freshly generated maps).
 _DEFAULT_MAX_ATTEMPTS = (
     int(v)
-    if (v := os.environ.get("FLE_GETPATH_MAX_ATTEMPTS", "120")).isdigit() and int(v) > 0
-    else 120
+    if (v := os.environ.get("FLE_GETPATH_MAX_ATTEMPTS", "45")).isdigit() and int(v) > 0
+    else 45
 )
 
 
