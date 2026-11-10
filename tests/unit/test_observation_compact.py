@@ -192,8 +192,10 @@ def test_connections_survive_value_summaries():
     from fle.env.gym_env.entity_compact import KEY_VALUES_ONLY, render_type
 
     text = render_type("belt-group", groups["belt-group"], KEY_VALUES_ONLY)
-    assert text.count("outputs=[(39.5, ") == 6
-    assert "holding=varies" not in text
+    assert "columns: belt_positions | inputs | lanes | outputs" in text
+    assert text.count("| [(39.5, ") == 6  # every group's output end
+    assert text.count("(0.5..39.5 by 1, ") == 6  # every group's belts
+    assert "varies" not in text
 
 
 def test_types_are_never_cut():
