@@ -1,7 +1,9 @@
 -- A character grid of a box of the map: one character per tile.
 -- Facts only: what entity, resource, water, cliff, tree or rock is on each tile.
 -- Reads the map; changes nothing, takes no game time and has no reach rule.
--- Tiles in chunks the force has not charted are "?" and nothing on them is reported.
+-- Tiles in chunks that are neither charted nor generated are "?" and nothing on them
+-- is reported (FLE worlds have no connected player, so the game charts nothing around
+-- the character; place_blueprint uses the same rule).
 --
 -- Inserters are returned as n / e / s / w (the side they drop on); the client
 -- prints them as arrows. Those four letters are never used for a resource.
@@ -29,13 +31,14 @@ storage.actions.get_map = function(player_index, x0, y0, x1, y1, radius)
     end
     local area = {{x0, y0}, {x1 + 1, y1 + 1}}
 
-    -- Charted chunks (what the in-game map shows)
+    -- The part of the map that exists: charted or generated chunks
     local chunk_charted = {}
     local function charted(tx, ty)
         local cx, cy = math.floor(tx / 32), math.floor(ty / 32)
         local key = cx .. "," .. cy
         if chunk_charted[key] == nil then
-            chunk_charted[key] = force.is_chunk_charted(surface, {x = cx, y = cy}) and true or false
+            local chunk = {x = cx, y = cy}
+            chunk_charted[key] = (force.is_chunk_charted(surface, chunk) or surface.is_chunk_generated(chunk)) and true or false
         end
         return chunk_charted[key]
     end
@@ -232,7 +235,7 @@ storage.actions.get_map = function(player_index, x0, y0, x1, y1, radius)
     if rocks > 0 then add("*", "rock (" .. rocks .. ")") end
     if you_drawn then add("@", "you") end
     add(".", "nothing on the tile")
-    if uncharted > 0 then add("?", "not charted (" .. uncharted .. " tiles)") end
+    if uncharted > 0 then add("?", "not generated or charted (" .. uncharted .. " tiles)") end
     return {x0 = x0, y0 = y0, x1 = x1, y1 = y1, rows = rows, legend = legend,
             player_x = px, player_y = py}
 end

@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 
-from fle.env.entities import Position
+from fle.env.entities import Position, TileMap
 from fle.env.tools import Tool
 
 MAX_SIDE = 64
@@ -31,7 +31,7 @@ def column_header(x0: int, x1: int) -> List[str]:
     return lines
 
 
-def render_map(response: dict) -> str:
+def render_map(response: dict) -> TileMap:
     x0, x1 = int(response["x0"]), int(response["x1"])
     y0, y1 = int(response["y0"]), int(response["y1"])
     rows = [str(r).translate(_INSERTER_TABLE) for r in _as_list(response["rows"])]
@@ -51,20 +51,16 @@ def render_map(response: dict) -> str:
     for i, row in enumerate(rows):
         lines.append(f"{str(y0 + i).rjust(width)} {row}")
     lines.append("Legend:")
+    legend = {}
     for item in _as_list(response.get("legend")):
         symbol = str(item["symbol"])
         if symbol == "INSERTER":
             symbol = " ".join(INSERTER_ARROWS[k] for k in "nesw")
+        legend[symbol] = str(item["text"])
         lines.append(f"  {symbol} {item['text']}")
-    return "\n".join(lines)
-
-
-class MapText(str):
-    """The map text. print() logs values with repr(), which would show a plain
-    string's newlines as \\n; this one prints as the grid itself."""
-
-    def __repr__(self) -> str:
-        return str.__str__(self)
+    return TileMap(
+        text="\n".join(lines), x0=x0, y0=y0, x1=x1, y1=y1, rows=rows, legend=legend
+    )
 
 
 class GetMap(Tool):
@@ -77,13 +73,13 @@ class GetMap(Tool):
         radius: int = 15,
         left_top: Optional[Position] = None,
         right_bottom: Optional[Position] = None,
-    ) -> str:
+    ) -> TileMap:
         """
         Get a text map of an area: one character per tile, with x and y on the axes and a legend.
         Shows what is on each tile: entity footprints by name, belts and inserters with their
         direction, pipes, electric poles, resources by type, water, cliffs, trees, rocks and you.
         It reads the map only: it builds nothing, takes no game time and works at any distance.
-        Tiles the map has not charted show as ?. It shows facts only.
+        Tiles in a part of the map that has not been generated or charted show as ?. It shows facts only.
         The area is either position and radius, or the box between left_top and right_bottom.
         The most one call returns is 64 x 64 tiles.
         :param position: Centre of the map (default: your position)
@@ -92,7 +88,7 @@ class GetMap(Tool):
         :param right_bottom: The opposite corner of the box; both corner tiles are included
         :example print(get_map(Position(x=0, y=0), radius=10))
         :example print(get_map(left_top=Position(x=-20, y=5), right_bottom=Position(x=10, y=25)))
-        :return: The map as text: a header, the x of each column, one row per y, then the legend
+        :return: TileMap. print() it for the map text: a header, the x of each column, one row per y, then the legend. Also .rows, .legend and .at(x, y), the character on a tile.
         """
         for name, value in (
             ("position", position),
@@ -136,4 +132,4 @@ class GetMap(Tool):
             raise Exception(
                 f"Could not get map: {self.get_error_message(str(response))}"
             )
-        return MapText(render_map(response))
+        return render_map(response)

@@ -27,7 +27,7 @@ prototypes = {entity = {["steam-engine"] = {
     type = "generator", tile_width = 3, tile_height = 5,
     collision_box = {left_top = {x = -1.5, y = -2.5}, right_bottom = {x = 1.5, y = 2.5}}}}}
 calls = {placed = {}}
-local surface = {}
+local surface = {is_chunk_generated = function() return true end}
 local player = {
     valid = true,
     position = {x = 20, y = 20}, reach_distance = 100, surface = surface,

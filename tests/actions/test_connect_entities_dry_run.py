@@ -17,7 +17,7 @@ def test_dry_run(game):
     )
     assert game.inspect_inventory()[Prototype.TransportBelt] == 12
     assert len(game.get_entities()) == 0
-    assert isinstance(belts, dict)
+    assert belts.route_found
     assert belts["number_of_entities_available"] == 12
     assert belts["number_of_entities_required"] < 12
 
@@ -28,7 +28,7 @@ def test_dry_run(game):
     )
     assert game.inspect_inventory()[Prototype.TransportBelt] == 12
     assert len(game.get_entities()) == 0
-    assert isinstance(belts, dict)
+    assert belts.route_found
     assert belts["number_of_entities_available"] == 12
     assert belts["number_of_entities_required"] > 12
 

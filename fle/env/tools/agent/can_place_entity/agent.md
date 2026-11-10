@@ -29,7 +29,7 @@ A `PlacementCheck`. Used in an `if`, it is True exactly when `can_place` is True
 - an entity in the way: `blocked by pipe at (9.5, 3.5)`
 - a tile the entity cannot stand on: `blocked by water at (9, 3)` (a tile is named by its x, y)
 - a cliff, tree or rock in the way, by name and position
-- an uncharted position: `tile (140, -62) is outside the charted map`
+- a position off the known map: `tile (140, -62) is in a part of the map that has not been generated or charted`
 - an entity with a placement rule of its own: `pumpjack must be placed on a resource it can mine (crude-oil); there is none under this position`, `offshore-pump must be placed at the edge of water, facing the water`
 - it fits but `place_entity` would still refuse: `fits, but out of reach (distance 14.2, reach 10)`, `fits, but no stone-furnace in your inventory`
 

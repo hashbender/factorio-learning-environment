@@ -1,6 +1,6 @@
 """connect_entities(..., dry_run=True): the shape of the answer. Server-free."""
 
-from fle.env.entities import Direction, Position
+from fle.env.entities import ConnectDryRun, Direction, PlannedEntity, Position
 from fle.env.tools.agent.connect_entities import dry_run as dr
 from fle.env.tools.agent.connect_entities.client import ConnectEntities
 from fle.env.tools.agent.connect_entities.path_result import PathResult
@@ -62,11 +62,16 @@ def test_route_found_lists_what_would_be_placed():
     assert plan["number_of_entities_required"] == 3
     assert plan["number_of_entities_available"] == 4
     assert plan["error"] is None and plan["blocked_at"] is None
-    assert plan["entities"][0] == {
-        "name": "transport-belt",
-        "position": Position(x=3.5, y=1.5),
-        "direction": Direction.DOWN,
-    }
+    assert isinstance(plan, ConnectDryRun) and plan.route_found is True
+    first = plan.entities[0]
+    assert isinstance(first, PlannedEntity)
+    assert (first.name, first.position, first.direction) == (
+        "transport-belt",
+        Position(x=3.5, y=1.5),
+        Direction.DOWN,
+    )
+    assert first["position"] == first.position  # dict-style reads work too
+    assert "route_found" in plan.keys() and plan.get("error") is None
     assert repr(plan) == (
         "ConnectDryRun(route_found=True, required={'transport-belt': 2, 'underground-belt': 1}, "
         "in_inventory={'transport-belt': 4, 'underground-belt': 0}, missing={'underground-belt': 1}, "
@@ -162,10 +167,19 @@ def test_long_routes_print_the_first_positions_only():
     planned = [{"name": "pipe", "x": i + 0.5, "y": 0.5, "direction": 0} for i in range(55)]
     plan = dr.success(dr.planned_entities(planned), {"pipe": 60}, 60)
     assert len(plan["entities"]) == 55
-    assert plan["entities"][0]["direction"] is None  # a pipe has no direction
+    assert plan["entities"][0].direction is None  # a pipe has no direction
     text = repr(plan)
     assert "pipe at (39.5, 0.5)" in text and "pipe at (40.5, 0.5)" not in text
-    assert "... and 15 more in ['entities']" in text
+    assert "... and 15 more in .entities" in text
+
+
+def test_result_survives_being_rebuilt_field_by_field():
+    """A process boundary that rebuilds FLE data models from their fields keeps the answer readable."""
+    plan = dr.success(dr.planned_entities(PLANNED), {"transport-belt": 4}, 4)
+    entities = [PlannedEntity.model_construct(**dict(e.__dict__)) for e in plan.entities]
+    rebuilt = ConnectDryRun.model_construct(**{**dict(plan.__dict__), "entities": entities})
+    assert repr(rebuilt) == repr(plan)
+    assert rebuilt["required"] == {"transport-belt": 2, "underground-belt": 1}
 
 
 def test_path_result_carries_the_plan():

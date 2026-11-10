@@ -721,6 +721,105 @@ class Inserter(StaticEntity, Electric):
     _height: float = 1
 
 
+class TileMap(BaseModel):
+    """A text map of an area, one character per tile (get_map). print() it, or use
+    str(), to get the map text. rows are the grid rows without the axis labels,
+    top (y0) to bottom (y1); legend maps each symbol to what it stands for."""
+
+    text: str
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    rows: List[str] = []
+    legend: Dict[str, str] = {}
+
+    def at(self, x: float, y: float) -> Optional[str]:
+        """The character on the tile that holds (x, y); None outside the map."""
+        tx, ty = int(x // 1), int(y // 1)
+        if not (self.x0 <= tx <= self.x1 and self.y0 <= ty <= self.y1):
+            return None
+        row = self.rows[ty - self.y0]
+        return row[tx - self.x0] if tx - self.x0 < len(row) else None
+
+    def __repr__(self) -> str:
+        return self.text
+
+    __str__ = __repr__
+
+
+class PlannedEntity(BaseModel):
+    """One entity a connect_entities dry run would place."""
+
+    name: str
+    position: Position
+    direction: Optional[Direction] = None  # None for entities without one (pipes, poles)
+
+    def __repr__(self) -> str:
+        facing = f" {self.direction.name}" if self.direction is not None else ""
+        return f"{self.name} at ({self.position.x}, {self.position.y}){facing}"
+
+    __str__ = __repr__
+
+    def __getitem__(self, key: str):
+        return getattr(self, key)
+
+
+class ConnectDryRun(BaseModel):
+    """The answer of connect_entities(..., dry_run=True). Nothing was built.
+
+    route_found: the game found a route and every placement on it passed the build check.
+    entities / required: what would be placed (in route order) and the count per item.
+    in_inventory / missing / enough_in_inventory: what you hold of those items now.
+    belt_changes: belts already on the map that the route would turn.
+    error / blocked_at: when no route was found, the error the real call would raise
+    and the position it names.
+    Fields can also be read like a dict: plan["route_found"]."""
+
+    route_found: bool
+    number_of_entities_required: Optional[int] = None
+    number_of_entities_available: int = 0
+    required: Dict[str, int] = {}
+    in_inventory: Dict[str, int] = {}
+    missing: Dict[str, int] = {}
+    enough_in_inventory: bool = False
+    entities: List[PlannedEntity] = []
+    belt_changes: List[str] = []
+    error: Optional[str] = None
+    blocked_at: Optional[Position] = None
+
+    def __getitem__(self, key: str):
+        return getattr(self, key)
+
+    def get(self, key: str, default=None):
+        return getattr(self, key, default)
+
+    def keys(self):
+        return list(type(self).model_fields.keys())
+
+    def __repr__(self) -> str:
+        if not self.route_found:
+            at = self.blocked_at
+            where = f", blocked_at=({at.x}, {at.y})" if at is not None else ""
+            return f"ConnectDryRun(route_found=False{where}, error={self.error!r})"
+        parts = [
+            "route_found=True",
+            f"required={self.required}",
+            f"in_inventory={self.in_inventory}",
+            f"missing={self.missing}",
+        ]
+        if self.belt_changes:
+            parts.append(f"belt_changes={self.belt_changes}")
+        shown = [repr(e) for e in self.entities[:40]]
+        more = len(self.entities) - len(shown)
+        if more > 0:
+            shown.append(f"... and {more} more in .entities")
+        parts.append(f"entities=[{', '.join(shown)}]")
+        return f"ConnectDryRun({', '.join(parts)})"
+
+    __str__ = __repr__
+
+
 class PlacementBlocker(BaseModel):
     """One thing in the way of a placement (can_place_entity): an entity, at its
     position, or a tile, at the tile's x and y."""

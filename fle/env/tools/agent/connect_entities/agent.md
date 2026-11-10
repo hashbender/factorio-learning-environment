@@ -221,10 +221,10 @@ print(plan)
 # ConnectDryRun(route_found=True, required={'transport-belt': 6}, in_inventory={'transport-belt': 4}, missing={'transport-belt': 2}, entities=[transport-belt at (3.5, 1.5) DOWN, transport-belt at (3.5, 2.5) DOWN, ...])
 ```
 
-The result is a dict:
+The result is a `ConnectDryRun`. Its fields can be read as attributes (`plan.route_found`) or like a dict (`plan["route_found"]`):
 
 - `route_found`: True when the game found a route and every placement on it passed the build check
-- `entities`: what would be placed, in route order, each a dict with `name`, `position` and `direction` (None for entities without one)
+- `entities`: what would be placed, in route order, each with `name`, `position` and `direction` (None for entities without one); printing the result shows the first 40
 - `required`: the count of each item the route places, by name
 - `in_inventory`: how many of each of those you hold now
 - `missing`: the items you are short of, by name (empty when you hold enough); `enough_in_inventory` is True when it is empty

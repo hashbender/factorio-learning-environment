@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from fle.env.entities import Position
+from fle.env.entities import Position, TileMap
 from fle.env.tools.agent.get_map.client import GetMap, column_header
 
 SERVER_LUA = (
@@ -44,7 +44,13 @@ RESP = {
 
 def test_renders_axes_rows_and_legend():
     out = _tool(RESP)(Position(x=0, y=10), radius=1)
-    lines = out.splitlines()
+    assert isinstance(out, TileMap)
+    assert (out.x0, out.y0, out.x1, out.y1) == (-1, 9, 1, 11)
+    assert out.rows == ["..S", "→@>", "~~i"]
+    assert out.legend["S"] == "stone-furnace (1)"
+    assert out.at(1.5, 9.2) == "S" and out.at(-1, 11) == "~" and out.at(0, 10) == "@"
+    assert out.at(2, 9) is None and out.at(0, 12) is None
+    lines = str(out).splitlines()
     assert lines[0].startswith("Map x -1..1, y 9..11 (3 x 3 tiles), one character per tile.")
     assert "its centre is Position(x + 0.5, y + 0.5)" in lines[0]
     assert lines[1] == "You are on tile x=0, y=10."
@@ -115,7 +121,14 @@ def test_prints_as_a_grid():
     resp = {"x0": 0, "x1": 1, "y0": 0, "y1": 1, "rows": [".@", ".."], "legend": []}
     out = _tool(resp)(radius=1)
     assert "\\n" not in repr((out,))
-    assert repr(out) == str(out)
+    assert repr(out) == str(out) == out.text
+
+
+def test_survives_being_rebuilt_field_by_field():
+    """A process boundary that rebuilds FLE data models from their fields keeps the map printable."""
+    out = _tool(RESP)(Position(x=0, y=10), radius=1)
+    rebuilt = TileMap.model_construct(**dict(out.__dict__))
+    assert repr(rebuilt) == repr(out) and rebuilt.at(0, 10) == "@"
 
 
 # --- the action, in Lua ----------------------------------------------------------------------------
@@ -148,6 +161,7 @@ local surface = {
         return {{name = "water", position = {x = 0, y = 1}}, {name = "grass-1", position = {x = 1, y = 1}},
                 {name = "deepwater", position = {x = 40, y = 1}}}
     end,
+    is_chunk_generated = function(chunk) return chunk.x == 0 end,
     find_entities_filtered = function(f)
         local out = {}
         for _, e in ipairs(world) do
@@ -159,8 +173,8 @@ local surface = {
         return out
     end,
 }
--- chunk x = 0 is charted, chunk x = 1 (tiles 32..63) is not
-local force = {is_chunk_charted = function(s, chunk) return chunk.x == 0 end}
+-- chunk x = 0 is generated; chunk x = 1 (tiles 32..63) is neither generated nor charted
+local force = {is_chunk_charted = function(s, chunk) return false end}
 local player = {valid = true, position = {x = 0.5, y = 3.5}, surface = surface, force = force}
 storage = {actions = {}, utils = {ensure_valid_character = function() return player end}}
 """
@@ -218,7 +232,7 @@ def test_action_uncharted_tiles_show_nothing():
     assert rows[0] == ".." + "?" * 10
     assert rows[1] == ".." + "?" * 10  # the cliff and water out there are not reported
     legend = _legend(result)
-    assert legend["?"] == "not charted (20 tiles)"
+    assert legend["?"] == "not generated or charted (20 tiles)"
     assert "#" not in legend and "~" not in legend
 
 

@@ -133,9 +133,9 @@ class ConnectEntities(Tool):
         connect_entities(*waypoints, connection_type=connection_type).
         :param waypoints: Two or more Positions, Entities or EntityGroups to connect
         :param connection_type: The Prototype to connect with, or a set of Prototypes of one kind, e.g. {Prototype.Pipe, Prototype.UndergroundPipe}
-        :param dry_run: If True, build nothing and return a dict saying whether a route exists (route_found), what would be placed and where (entities, required), what you hold (in_inventory, missing), or the error and blocked position (error, blocked_at). It never raises for a route that fails, takes no game time and leaves you where you are.
+        :param dry_run: If True, build nothing and return a ConnectDryRun saying whether a route exists (route_found), what would be placed and where (entities, required), what you hold (in_inventory, missing), or the error and blocked position (error, blocked_at). It never raises for a route that fails, takes no game time and leaves you where you are.
         :param allow_belt_changes: Belts only. If False (default), belts that are already on the map keep their direction, type and position; a route that would change one fails, naming it, and nothing is built. If True, the end belt of an existing line may be turned to face the new belts.
-        :return: The resulting entity group (e.g. a BeltGroup, PipeGroup or ElectricityGroup); with dry_run=True, the dry-run dict
+        :return: The resulting entity group (e.g. a BeltGroup, PipeGroup or ElectricityGroup); with dry_run=True, a ConnectDryRun
         """
         args = waypoints
         if connection_type is not None:
@@ -306,7 +306,7 @@ class ConnectEntities(Tool):
         Each leg between two waypoints is checked on the map as it is now. A leg
         that fails does not raise: the error the real call would raise is returned,
         with the position it names."""
-        entities: List[dict] = []
+        entities: list = []
         belt_changes: List[str] = []
         available = 0
         try:
@@ -341,8 +341,8 @@ class ConnectEntities(Tool):
             )
         held = {}
         for e in entities:
-            if e["name"] not in held:
-                held[e["name"]] = self._inventory_count(inventory, e["name"])
+            if e.name not in held:
+                held[e.name] = self._inventory_count(inventory, e.name)
         return dry_run_result.success(entities, held, available, belt_changes)
 
     @staticmethod

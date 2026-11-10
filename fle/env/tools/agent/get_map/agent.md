@@ -2,7 +2,7 @@
 
 `get_map` returns a text map of an area: one character per tile, with the x of every column and the y of every row, plus a legend. It reports what is on each tile, as the game screen shows it; it does not analyse the layout.
 
-It only reads the map: it builds nothing, moves nothing, takes no game time and works at any distance from you. Tiles the map has not charted are shown as `?`, and nothing on them is reported.
+It only reads the map: it builds nothing, moves nothing, takes no game time and works at any distance from you. Tiles in a part of the map that has not been generated or charted are shown as `?`, and nothing on them is reported.
 
 ## Basic Usage
 
@@ -22,11 +22,18 @@ The most one call returns is 64 x 64 tiles. A larger box raises an error that st
 
 ### Return Value
 
-A string:
+A `TileMap`. `print()` it (or use `str()`) for the map text:
 - a header line with the x range and y range, and the tile you are on;
 - the x of each column, written top to bottom above the column (a `-` row for negative x, then one row per digit);
 - one row per y, starting with that y, one character per tile;
 - a legend of the symbols that appear, with entity names and counts.
+
+The `TileMap` also has `rows` (the grid rows without the axis labels, top to bottom), `legend` (symbol to meaning), `x0`, `y0`, `x1`, `y1`, and `at(x, y)`, the character on the tile that holds (x, y), or None outside the map:
+
+```python
+m = get_map(Position(x=20, y=-10), radius=8)
+print(m.at(22.5, -9.5))   # '.' when nothing is on that tile
+```
 
 x grows to the right and y grows downward. Tile `x, y` covers x to x+1 and y to y+1; its centre is `Position(x + 0.5, y + 0.5)`.
 
@@ -37,7 +44,7 @@ x grows to the right and y grows downward. Tile `x, y` covers x to x+1 and y to 
 - `↑ → ↓ ←`: an inserter, pointing at the side it drops on.
 - `=` pipe, `|` electric pole (the legend gives the names and counts).
 - A lowercase letter per resource (the legend gives the name and tile count).
-- `~` water, `#` cliff, `%` tree, `*` rock, `.` nothing on the tile, `?` not charted.
+- `~` water, `#` cliff, `%` tree, `*` rock, `.` nothing on the tile, `?` not generated or charted.
 - `@` you, drawn only when the tile you are on holds no entity; the header always gives your tile.
 
 Entities are drawn over resources, so a mining drill covers the ore under it. Letters are given per call: read them from that call's legend.

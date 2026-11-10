@@ -66,6 +66,7 @@ local function inside(f, x, y)
     return x >= f.area[1][1] and x <= f.area[2][1] and y >= f.area[1][2] and y <= f.area[2][2]
 end
 local surface = {
+    is_chunk_generated = function(chunk) return false end,
     find_entities_filtered = function(f)
         local out = {}
         for _, e in ipairs(world) do
@@ -170,7 +171,9 @@ def test_tree_blocks_and_items_on_the_ground_do_not():
 def test_uncharted_position():
     _, r = _run("stone-furnace", 0, 140, -62)
     assert not r.fits
-    assert r.reason == '"tile (139, -63) is outside the charted map"'
+    assert r.reason == (
+        '"tile (139, -63) is in a part of the map that has not been generated or charted"'
+    )
     assert r.blocked_count == 0
 
 
@@ -285,6 +288,14 @@ def test_client_fits_but_cannot_be_placed_now():
     )
     check = _tool(dict(BASE, in_inventory=0))(Prototype.StoneFurnace)
     assert check.reason == "fits, but no stone-furnace in your inventory"
+
+
+def test_client_result_survives_being_rebuilt_field_by_field():
+    resp = dict(BASE, fits=False, can_place=False, reason="blocked by pipe at (9.5, 3.5)",
+                blocked_by={1: {"kind": "entity", "name": "pipe", "x": 9.5, "y": 3.5}}, blocked_count=1)
+    check = _tool(resp)(Prototype.TransportBelt, Direction.RIGHT, Position(x=9.5, y=3.5))
+    rebuilt = PlacementCheck.model_construct(**dict(check.__dict__))
+    assert not rebuilt and repr(rebuilt) == repr(check)
 
 
 def test_client_reports_an_action_error():

@@ -84,12 +84,13 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
         return result
     end
 
-    -- Charted, like the in-game map: nothing is known about an uncharted chunk
+    -- The map must exist there: a charted or generated chunk (FLE worlds have no connected
+    -- player, so the game charts nothing around the character; place_blueprint's rule)
     for ty = top, bottom do
         for tx = left, right do
             local chunk = {x = math.floor(tx / 32), y = math.floor(ty / 32)}
-            if not player.force.is_chunk_charted(surface, chunk) then
-                return finish(false, "tile (" .. tx .. ", " .. ty .. ") is outside the charted map")
+            if not (player.force.is_chunk_charted(surface, chunk) or surface.is_chunk_generated(chunk)) then
+                return finish(false, "tile (" .. tx .. ", " .. ty .. ") is in a part of the map that has not been generated or charted")
             end
         end
     end
