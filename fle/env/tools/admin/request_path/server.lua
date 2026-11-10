@@ -12,6 +12,18 @@ storage.actions.request_path = function(player_index, start_x, start_y, goal_x, 
     local surface = player.surface
     local force = player.force
 
+    -- The game computes paths a little each tick (map_settings.path_finder,
+    -- max_steps_worked_per_tick, default 100). At 1x game speed a long path then
+    -- takes many real seconds. Raise the per-tick budget to 10x the default, which
+    -- gives at 1x the real-time path speed of the default budget at 10x.
+    local path_finder = game.map_settings.path_finder
+    if path_finder.max_steps_worked_per_tick < 1000 then
+        path_finder.max_steps_worked_per_tick = 1000
+    end
+    if path_finder.max_work_done_per_tick < 80000 then
+        path_finder.max_work_done_per_tick = 80000
+    end
+
     -- Define region for pipe checking (add some margin around start/goal)
     local region = {
         left_top = {
