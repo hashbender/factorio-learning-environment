@@ -779,6 +779,32 @@ local function buildable_tile_chain(surface, raw_path, entity_name)
     return chain
 end
 
+-- A pipe leg whose start and end are the same tile or side by side needs no
+-- route: it is that tile, or those two tiles. The game's path search is not used
+-- for it, because the start tile usually holds the pipe the previous leg ended
+-- on (a search cannot start inside it) and the tiles beside existing pipes are
+-- fenced off, so the search went round them and came back (a U-turn ring).
+local function adjacent_pipe_leg(connection_types, start_position, end_position)
+    if (default_connect_types[connection_types[1]] or connection_types[1]) ~= "pipe" then
+        return nil
+    end
+    if #connection_types == 1 and connection_types[1] == "pipe-to-ground" then
+        return nil
+    end
+    local function tile(p)
+        return {x = math.floor(p.x) + 0.5, y = math.floor(p.y) + 0.5}
+    end
+    local first, last = tile(start_position), tile(end_position)
+    local steps = math.abs(first.x - last.x) + math.abs(first.y - last.y)
+    if steps == 0 then
+        return {{position = first}}
+    elseif steps == 1 then
+        return {{position = first}, {position = last}}
+    end
+    return nil
+end
+storage.utils.adjacent_pipe_leg = adjacent_pipe_leg
+
 local function connect_entities(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, dry_run)
     local counter_state = {place_counter = 0}
     local player = storage.agent_characters[player_index]
@@ -789,17 +815,20 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
 
 
     local raw_path = storage.paths[path_handle]
+    local path = adjacent_pipe_leg(connection_types, start_position, end_position)
 
-    if not raw_path or type(raw_path) ~= "table" or #raw_path == 0 then
-        error("\"No path found\"")
+    if not path then
+        if not raw_path or type(raw_path) ~= "table" or #raw_path == 0 then
+            error("\"No path found\"")
+        end
+
+        -- Pipes: follow the game's path tile by tile, choosing buildable tiles
+        if (default_connect_types[connection_types[1]] or connection_types[1]) == "pipe" then
+            raw_path = buildable_tile_chain(player.surface, raw_path, "pipe")
+        end
+
+        path = storage.utils.normalise_path(raw_path, start_position, end_position)
     end
-
-    -- Pipes: follow the game's path tile by tile, choosing buildable tiles
-    if (default_connect_types[connection_types[1]] or connection_types[1]) == "pipe" then
-        raw_path = buildable_tile_chain(player.surface, raw_path, "pipe")
-    end
-
-    local path = storage.utils.normalise_path(raw_path, start_position, end_position)
 
     if #path == 0 then
         error(string.format(
@@ -829,7 +858,8 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
     for i = 1, #path - 1 do
         rendering.draw_line{only_in_alt_mode=true, surface = player.surface, from = path[i].position, to =  path[i + 1].position, color = {1, 0, 1}, width = 2,  dash_length=0.25, gap_length = 0.25}
     end
-    for i = 1, #raw_path - 1 do
+    -- (a leg built without the search may have no path from it: "not_found")
+    for i = 1, (type(raw_path) == "table" and #raw_path or 0) - 1 do
         rendering.draw_line{only_in_alt_mode=true, surface = player.surface, from = raw_path[i].position, to =  raw_path[i + 1].position, color = {1, 1, 0}, width = 0,  dash_length=0.2, gap_length = 0.2}
     end
 
@@ -996,7 +1026,8 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
         -- After underground segment placement
         if current_index == #path and not path[#path].has_entity then
             local final_pos = path[#path].position
-            local prev_pos = path[#path-1].position
+            -- a one-tile leg has no previous tile
+            local prev_pos = (path[#path-1] or path[#path]).position
             -- Factorio 2.0: get_direction returns 0/4/8/12 - pass directly
             local dir = storage.utils.get_direction(prev_pos, final_pos)
             place_at_position(player, default_connection_type, final_pos,

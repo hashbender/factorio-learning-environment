@@ -204,6 +204,9 @@ class FluidConnectionResolver(Resolver):
                 f"Cannot connect to a {target_entity.prototype} until a recipe has been set."
             )
         input_connections = [x.type for x in target_entity.input_connection_points]
+        # a bare position as source ("all") may carry any fluid, as when pairing ports
+        if "all" in source_fluids:
+            return True
         # get the overlap between source fluids and input connections
         fluid_intersections = set(source_fluids).intersection(set(input_connections))
         if not fluid_intersections:
