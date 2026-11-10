@@ -480,15 +480,8 @@ local function place_at_position(player, connection_type, current_position, dir,
             end
         end
 
-        -- For pipes, merge networks
-        if connection_type == 'pipe' then
-            for _, serialized in ipairs(serialized_entities) do
-                local entity = game.surfaces[1].find_entity(connection_type, serialized.position)
-                if entity and has_valid_fluidbox(entity) then
-                    existing_entity.connect_neighbour(entity)
-                end
-            end
-        end
+        -- (Pipes next to each other join their fluid networks by themselves in
+        -- Factorio 2.0; LuaEntity.connect_neighbour no longer exists.)
 
         -- Update or add to serialized list
         for i, serialized in ipairs(serialized_entities) do
