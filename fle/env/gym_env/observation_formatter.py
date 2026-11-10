@@ -166,6 +166,18 @@ class FormattedObservation:
     The nearest cliffs within 40 tiles of you (up to 25, nearest first): (12, -30), (14, -30)
     Empty when the cliffs are unknown."""
 
+    resources_str: str = ""
+    """Formatted string listing the resource patches near the factory.
+    Example:
+    ### Resources
+    Resource patches with a tile within 100 tiles of the area x -40..60,
+    y -30..50 (your buildings and you); whole patches (up to 1000 tiles from
+    you), amounts from the game:
+    - iron-ore: 2 patches, 1,804,213 total
+      - 1,512,000 on 1,240 tiles, x -120.5..-80.5, y 10.5..52.5
+      - 292,213 on 310 tiles, x 70.5..90.5, y -60.5..-44.5
+    Empty when the patches are unknown."""
+
     power_str: str = ""
     """Formatted string summarising each electric network (power pole GUI).
     Example:
@@ -242,6 +254,7 @@ class BasicObservationFormatter:
         include_character_positions: bool = True,
         include_cliffs: bool = True,
         include_power: bool = True,
+        include_resources: bool = True,
     ):
         """Initialize the formatter with flags for which fields to include"""
         self.include_inventory = include_inventory
@@ -257,6 +270,7 @@ class BasicObservationFormatter:
         self.include_character_positions = include_character_positions
         self.include_cliffs = include_cliffs
         self.include_power = include_power
+        self.include_resources = include_resources
 
     def _entities_section(self, entities: List[Any]) -> str:
         return self.format_entities(entities)
@@ -855,6 +869,84 @@ class BasicObservationFormatter:
             lines.append(f"- ({more} more networks)")
         return "\n".join(lines)
 
+    @staticmethod
+    def format_resources(resources: Optional[Dict[str, Any]]) -> str:
+        """Format the resource patches near the factory (get_resource_reserves).
+
+        Args:
+            resources: The get_resource_reserves result, or None if unknown
+
+        Returns:
+            Formatted string, or "" when the patches are unknown
+        """
+        if resources is None:
+            return ""
+
+        def num(v) -> str:
+            v = float(v)
+            return f"{v:g}" if v != int(v) else str(int(v))
+
+        def amount(v) -> str:
+            return f"{int(round(float(v))):,}"
+
+        area = resources.get("area") or {}
+        margin = num(resources.get("margin") or 0)
+        radius = num(resources.get("radius") or 0)
+        if area:
+            what = "your buildings and you" if resources.get("buildings") else "you"
+            where = (
+                f"of the area x {num(area['x1'])}..{num(area['x2'])}, "
+                f"y {num(area['y1'])}..{num(area['y2'])} ({what})"
+            )
+        else:
+            where = "of you"
+        lines = [
+            "### Resources",
+            f"Resource patches with a tile within {margin} tiles {where}; "
+            f"whole patches (up to {radius} tiles from you), amounts from the game:",
+        ]
+        patches = list(resources.get("patches") or [])
+        if not patches:
+            lines.append("- none")
+        by_name: Dict[str, List[Dict[str, Any]]] = {}
+        for p in patches:
+            by_name.setdefault(str(p.get("name", "?")), []).append(p)
+        for name in sorted(by_name):
+            group = sorted(by_name[name], key=lambda p: -float(p.get("amount") or 0))
+            total = sum(float(p.get("amount") or 0) for p in group)
+            infinite = any(p.get("infinite") for p in group)
+            if infinite:
+                head = f"- {name}: {len(group)} field{'s' if len(group) > 1 else ''}"
+            else:
+                head = (
+                    f"- {name}: {len(group)} patch{'es' if len(group) > 1 else ''}, "
+                    f"{amount(total)} total"
+                )
+            lines.append(head)
+            for p in group:
+                box = (
+                    f"x {num(p['x1'])}..{num(p['x2'])}, y {num(p['y1'])}..{num(p['y2'])}"
+                    if all(k in p for k in ("x1", "y1", "x2", "y2"))
+                    else "area unknown"
+                )
+                if infinite:
+                    normal = float(p.get("normal") or 0)
+                    tiles = int(p.get("tiles") or 0)
+                    text = f"{tiles} well{'s' if tiles != 1 else ''}"
+                    if normal > 0:
+                        text += (
+                            f", yield {float(p.get('amount') or 0) / normal:.0%} total"
+                        )
+                    text += f" (amount {amount(p.get('amount') or 0)}), {box}"
+                else:
+                    text = f"{amount(p.get('amount') or 0)} on {int(p.get('tiles') or 0):,} tiles, {box}"
+                if p.get("clipped"):
+                    text += f" (continues past {radius} tiles from you; counted up to there)"
+                lines.append(f"  - {text}")
+        if resources.get("truncated"):
+            lines.append("- (search limit reached: patches after these were not read)")
+        return "\n".join(lines)
+
     def format(
         self, observation: Observation, last_message_timestamp: float = 0.0
     ) -> FormattedObservation:
@@ -916,6 +1008,12 @@ class BasicObservationFormatter:
             if power_str:
                 formatted_parts.append(power_str)
 
+        # Add the resource patches near the factory
+        if self.include_resources:
+            resources_str = self.format_resources(obs_dict.get("resources"))
+            if resources_str:
+                formatted_parts.append(resources_str)
+
         # Add optional components if they exist and are enabled
         if self.include_task:
             task_str = self.format_task(obs_dict.get("task_verification"))
@@ -947,7 +1045,7 @@ class BasicObservationFormatter:
             inventory_str=self.format_inventory(obs_dict.get("inventory", []))
             if self.include_inventory
             else "",
-            entities_str=self.format_entities(obs_dict.get("entities", []))
+            entities_str=self._entities_section(obs_dict.get("entities", []))
             if self.include_entities
             else "",
             flows_str=self.format_flows(obs_dict.get("flows", {}))
@@ -989,6 +1087,9 @@ class BasicObservationFormatter:
             else "",
             power_str=self.format_power(obs_dict.get("power_networks"))
             if self.include_power
+            else "",
+            resources_str=self.format_resources(obs_dict.get("resources"))
+            if self.include_resources
             else "",
             raw_str=raw_str,
         )
@@ -1044,8 +1145,10 @@ class TreeObservationFormatter(BasicObservationFormatter):
         budget_chars: int,
         excluded_keys: Optional[set] = None,
     ) -> str:
-        """The full entity listing if it fits in budget_chars, else the compact one."""
-        full = cls.format_entities(entities, excluded_keys)
+        """The full entity listing if it fits in budget_chars, else the compact one.
+        Both give every list in full (belt contents and positions, pipe and pole
+        positions, neighbours); only the compact one summarises, and says what."""
+        full = cls.format_entities(entities, excluded_keys, uncapped=True)
         if len(full) <= budget_chars:
             return full
         return cls.format_entities_compact(entities, budget_chars, excluded_keys)
@@ -1061,16 +1164,20 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
         Per type: values shared by all are listed once; entities with identical
         state are one line with all their positions (evenly spaced runs written
-        as a..b by step); geometry is relative to the entity (+(dx, dy)). When
-        that is still too long, the largest types are summarised first (values
-        that vary a lot become "varies", then only status and positions, then
-        counts and the area), and the section says so."""
+        as a..b by step, diagonal lines as (x0, y0)..(x1, y1) step (1, dy));
+        geometry is relative to the entity (+(dx, dy)); 3+ differing groups are
+        a table (keys once as columns). When that is still too long, detail is
+        reduced one level at a time for all types alike (entity_compact levels:
+        per-belt contents as counts, values that vary a lot as ranges,
+        differing values other than connections / recipe / status left out,
+        status and positions, counts and area), and the section names each
+        type that was summarised and how. Entities are never left out."""
         from fle.env.gym_env.entity_compact import compact_section
 
         if not entities:
             return "### Entities\nNone found"
         return compact_section(
-            cls._entity_groups(entities, excluded_keys), budget_chars
+            cls._entity_groups(entities, excluded_keys, uncapped=True), budget_chars
         )
 
     @staticmethod
@@ -1610,8 +1717,25 @@ class TreeObservationFormatter(BasicObservationFormatter):
         return f"{v:.0f}" if v >= 10 or v == int(v) else f"{v:.1f}"
 
     @classmethod
-    def _compact_positions(cls, members: list) -> str:
-        """First GROUP_POSITIONS_SHOWN member positions, then "(N more)"."""
+    def _compact_positions(cls, members: list, uncapped: bool = False) -> str:
+        """First GROUP_POSITIONS_SHOWN member positions, then "(N more)".
+        uncapped: every position, as evenly spaced runs (entity_compact.positions_text)."""
+        if uncapped:
+            from fle.env.gym_env.entity_compact import positions_text
+
+            points = []
+            for m in members:
+                pos = getattr(m, "position", None)
+                if pos is None and isinstance(m, dict):
+                    pos = m.get("position")
+                if isinstance(pos, dict):
+                    x, y = pos.get("x"), pos.get("y")
+                else:
+                    x = getattr(pos, "x", None) if pos is not None else None
+                    y = getattr(pos, "y", None) if pos is not None else None
+                if x is not None and y is not None:
+                    points.append((float(x), float(y)))
+            return "[" + positions_text(points) + "]"
         shown = []
         for m in members[: cls.GROUP_POSITIONS_SHOWN]:
             pos = getattr(m, "position", None)
@@ -1630,7 +1754,9 @@ class TreeObservationFormatter(BasicObservationFormatter):
         return "[" + ", ".join(shown) + "]"
 
     @classmethod
-    def _compact_fluid_power(cls, key: str, value: Any) -> Optional[str]:
+    def _compact_fluid_power(
+        cls, key: str, value: Any, uncapped: bool = False
+    ) -> Optional[str]:
         """Compact text for fluidboxes, pipe groups and power networks, or None to
         format normally. Powers read like "900 kW", energies like "5 MJ".
 
@@ -1655,7 +1781,7 @@ class TreeObservationFormatter(BasicObservationFormatter):
                 boxes.append(text)
             return "[" + ", ".join(boxes) + "]"
         if key in ("pipes", "poles") and isinstance(value, list):
-            return cls._compact_positions(value)
+            return cls._compact_positions(value, uncapped)
         if key in POWER_KEYS and isinstance(value, (int, float)):
             return format_watts(value)
         if key in ENERGY_KEYS and isinstance(value, (int, float)):
@@ -1667,7 +1793,9 @@ class TreeObservationFormatter(BasicObservationFormatter):
         return None
 
     @classmethod
-    def format_value_from_object(cls, key: str, value: Any) -> str:
+    def format_value_from_object(
+        cls, key: str, value: Any, uncapped: bool = False
+    ) -> str:
         """Format a Python object value for display.
 
         Args:
@@ -1684,7 +1812,7 @@ class TreeObservationFormatter(BasicObservationFormatter):
             return "None"
 
         # Fluid and power fields in compact, factual form
-        compact = cls._compact_fluid_power(key, value)
+        compact = cls._compact_fluid_power(key, value, uncapped)
         if compact is not None:
             return compact
 
@@ -1718,7 +1846,7 @@ class TreeObservationFormatter(BasicObservationFormatter):
                 return "[]"
             # Format list items
             formatted_items = [
-                cls.format_value_from_object(key, item) for item in value
+                cls.format_value_from_object(key, item, uncapped) for item in value
             ]
             return "[" + ", ".join(formatted_items) + "]"
 
@@ -1769,7 +1897,10 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
     @classmethod
     def entity_dict_to_formatted(
-        cls, entity_dict: Dict[str, Any], excluded_keys: Optional[set] = None
+        cls,
+        entity_dict: Dict[str, Any],
+        excluded_keys: Optional[set] = None,
+        uncapped: bool = False,
     ) -> Dict[str, str]:
         """Convert an entity dict (from Pydantic __dict__) to a formatted dict.
 
@@ -1796,7 +1927,7 @@ class TreeObservationFormatter(BasicObservationFormatter):
                 continue
 
             # Format the value
-            result[clean_key] = cls.format_value_from_object(clean_key, value)
+            result[clean_key] = cls.format_value_from_object(clean_key, value, uncapped)
 
         return result
 
@@ -1837,7 +1968,10 @@ class TreeObservationFormatter(BasicObservationFormatter):
         )
 
     @classmethod
-    def _capped(cls, parts: List[str], cap: int, sep: str = ", ") -> str:
+    def _capped(cls, parts: List[str], cap: Optional[int], sep: str = ", ") -> str:
+        """parts joined, the first `cap` of them then "(N more)"; cap None: all."""
+        if cap is None:
+            return sep.join(parts)
         shown = sep.join(parts[:cap])
         if len(parts) > cap:
             shown += f"{sep}({len(parts) - cap} more)"
@@ -1845,7 +1979,11 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
     @classmethod
     def _compact_special(
-        cls, entity_name: str, entity: Dict[str, Any], formatted: Dict[str, str]
+        cls,
+        entity_name: str,
+        entity: Dict[str, Any],
+        formatted: Dict[str, str],
+        uncapped: bool = False,
     ) -> Dict[str, str]:
         """Entity-specific compact views (belt groups, inserters). Facts only."""
         try:
@@ -1856,11 +1994,11 @@ class TreeObservationFormatter(BasicObservationFormatter):
                 and "neighbours" in formatted
             ):
                 formatted = dict(formatted)
-                formatted["neighbours"] = cls._compact_neighbours(neighbours)
+                formatted["neighbours"] = cls._compact_neighbours(neighbours, uncapped)
             if entity_name == "belt-group" or (
                 "belts" in entity and isinstance(entity.get("belts"), list)
             ):
-                return cls._compact_belt_group(entity, formatted)
+                return cls._compact_belt_group(entity, formatted, uncapped)
             if str(entity_name).endswith("inserter") and "drop_position" in formatted:
                 return cls._compact_inserter(entity, formatted)
         except Exception:
@@ -1870,13 +2008,13 @@ class TreeObservationFormatter(BasicObservationFormatter):
     NEIGHBOURS_CAP = 4
 
     @classmethod
-    def _compact_neighbours(cls, neighbours: List[Any]) -> str:
+    def _compact_neighbours(cls, neighbours: List[Any], uncapped: bool = False) -> str:
         """[name (x, y), ...] instead of each neighbour's full repr."""
         parts = []
         for n in neighbours:
             name = cls._attr(n, "name", "?")
             parts.append(f"{name} {cls._pos_str(cls._attr(n, 'position'))}")
-        return "[" + cls._capped(parts, cls.NEIGHBOURS_CAP) + "]"
+        return "[" + cls._capped(parts, None if uncapped else cls.NEIGHBOURS_CAP) + "]"
 
     @classmethod
     def _compact_inserter(
@@ -1894,10 +2032,12 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
     @classmethod
     def _compact_belt_group(
-        cls, entity: Dict[str, Any], formatted: Dict[str, str]
+        cls, entity: Dict[str, Any], formatted: Dict[str, str], uncapped: bool = False
     ) -> Dict[str, str]:
         """A belt group as counts: belts by type, ends, per-lane totals (L/R), and
-        the belts that hold items, capped with "(N more)".
+        the belts that hold items, capped with "(N more)". uncapped: every end and
+        every belt holding items, plus belt_positions: where each belt is, by
+        direction, as evenly spaced runs.
 
         L/R are the belt's own left/right lanes looking along its direction
         (Factorio transport lines 1 and 2)."""
@@ -1908,7 +2048,16 @@ class TreeObservationFormatter(BasicObservationFormatter):
         lane_totals = {"left": {}, "right": {}}
         holding = []
         full = 0
+        by_direction: Dict[str, List[Tuple[float, float]]] = {}
         for b in belts:
+            if uncapped:
+                pos = cls._attr(b, "position")
+                x = cls._attr(pos, "x") if pos is not None else None
+                y = cls._attr(pos, "y") if pos is not None else None
+                if x is not None and y is not None:
+                    d = cls._attr(b, "direction")
+                    d = getattr(d, "name", None) or str(d or "?")
+                    by_direction.setdefault(d, []).append((float(x), float(y)))
             name = cls._attr(b, "name", "?")
             by_type[name] = by_type.get(name, 0) + 1
             inv = cls._attr(b, "inventory", {}) or {}
@@ -1944,7 +2093,7 @@ class TreeObservationFormatter(BasicObservationFormatter):
                     "["
                     + cls._capped(
                         [cls._pos_str(cls._attr(e, "position")) for e in ends],
-                        cls.BELT_ENDS_CAP,
+                        None if uncapped else cls.BELT_ENDS_CAP,
                     )
                     + "]"
                 )
@@ -1956,15 +2105,26 @@ class TreeObservationFormatter(BasicObservationFormatter):
             out["full_belts"] = str(full)
         if holding:
             out["holding"] = f"{len(holding)} belts: " + cls._capped(
-                holding, cls.BELT_CONTENTS_CAP, sep="; "
+                holding, None if uncapped else cls.BELT_CONTENTS_CAP, sep="; "
+            )
+        if by_direction:
+            from fle.env.gym_env.entity_compact import positions_text
+
+            out["belt_positions"] = "; ".join(
+                f"{d} {positions_text(pts)}" for d, pts in sorted(by_direction.items())
             )
         return out
 
     @classmethod
     def _entity_groups(
-        cls, entities: List[Any], excluded_keys: Optional[set] = None
+        cls,
+        entities: List[Any],
+        excluded_keys: Optional[set] = None,
+        uncapped: bool = False,
     ) -> Dict[str, List[Dict[str, str]]]:
-        """Entities as {type: [formatted key/value dicts]}."""
+        """Entities as {type: [formatted key/value dicts]}. uncapped: lists inside
+        values (belt contents and ends, pipe / pole positions, neighbours) are
+        given in full instead of their first few then "(N more)"."""
         excluded = (
             excluded_keys if excluded_keys is not None else cls.DEFAULT_EXCLUDED_KEYS
         )
@@ -1981,8 +2141,10 @@ class TreeObservationFormatter(BasicObservationFormatter):
                     entity_name = entity_name.lstrip("_")
 
                 # Convert to formatted dict
-                formatted = cls.entity_dict_to_formatted(entity, excluded)
-                formatted = cls._compact_special(entity_name, entity, formatted)
+                formatted = cls.entity_dict_to_formatted(entity, excluded, uncapped)
+                formatted = cls._compact_special(
+                    entity_name, entity, formatted, uncapped
+                )
 
                 if entity_name not in entity_groups:
                     entity_groups[entity_name] = []
@@ -2008,7 +2170,10 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
     @classmethod
     def format_entities(
-        cls, entities: List[Any], excluded_keys: Optional[set] = None
+        cls,
+        entities: List[Any],
+        excluded_keys: Optional[set] = None,
+        uncapped: bool = False,
     ) -> str:
         """Format entity information using nested trie-based compression.
 
@@ -2022,7 +2187,7 @@ class TreeObservationFormatter(BasicObservationFormatter):
         if not entities:
             return "### Entities\nNone found"
 
-        entity_groups = cls._entity_groups(entities, excluded_keys)
+        entity_groups = cls._entity_groups(entities, excluded_keys, uncapped)
 
         # Format each entity group using nested trie structure
         group_strs = []
