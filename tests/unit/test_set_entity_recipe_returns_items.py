@@ -18,8 +18,17 @@ SERVER_LUA = (
 FAKE_WORLD = """
 local inserted, spilled = {}, {}
 local capacity = CAPACITY
-local recipes = {["iron-gear-wheel"] = {name = "iron-gear-wheel"}, ["copper-cable"] = {name = "copper-cable"}}
-local machine = {type = "assembling-machine", position = {x = 0.5, y = 0.5}, recipe = recipes["iron-gear-wheel"]}
+local recipes = {
+    ["iron-gear-wheel"] = {name = "iron-gear-wheel", enabled = true, category = "crafting"},
+    ["copper-cable"] = {name = "copper-cable", enabled = true, category = "crafting"},
+}
+local machine = {
+    name = "assembling-machine-1",
+    type = "assembling-machine",
+    position = {x = 0.5, y = 0.5},
+    prototype = {crafting_categories = {crafting = true}},
+    recipe = recipes["iron-gear-wheel"],
+}
 function machine.get_recipe() return machine.recipe end
 function machine.set_recipe(name)
     machine.recipe = recipes[name]
