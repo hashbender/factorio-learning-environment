@@ -27,6 +27,16 @@ class SchemaGenerator:
             if tool_name.startswith("_"):
                 continue
 
+            # Only classes that define __call__ themselves are tools; for any other
+            # class (e.g. a pydantic model in the client module) cls.__call__ is the
+            # metaclass's, which would add a "(*args, **kwargs)" entry
+            if not any(
+                "__call__" in vars(klass)
+                for klass in obj.__mro__
+                if klass is not object
+            ):
+                continue
+
             call_info = CodeAnalyzer.extract_call_info(obj)
             if not all(
                 [call_info.input_types, call_info.output_type, call_info.docstring]
