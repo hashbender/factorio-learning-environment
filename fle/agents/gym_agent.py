@@ -96,6 +96,10 @@ your_code_here
 - The nearest cliffs within 40 tiles of you (up to 25), with their positions
 - Entities cannot be placed on a cliff. An error from placing an entity names the cliff that blocks it; an error from connecting entities lists the cliffs in the area between the points being connected, with their positions
 
+### Power
+- One line per electric network (its id is the electrical_id of its poles and of the machines it powers), the networks with the most poles first, up to 10
+- Production and consumption (5 s averages), the generators' rated maximum output, demand (the rated power of the machines that are working or waiting for power, plus the drain of idle ones), satisfaction (consumption / demand), how many machines have low or no power, and accumulator charge
+
 ## Important Notes
 - Use transport belts to keep burners fed with coal
 - Always inspect game state before making changes

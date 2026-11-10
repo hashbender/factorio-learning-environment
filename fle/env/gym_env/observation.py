@@ -72,6 +72,10 @@ class Observation:
     # Cliffs near the agent's character, nearest first ({"x", "y"} each), or None
     # when they could not be read
     cliffs: Optional[List[Dict[str, float]]] = None
+    # Electric networks of the agent's force (get_power_networks: production,
+    # consumption, demand, satisfaction, ... per network id), or None when they
+    # could not be read
+    power_networks: Optional[List[Dict[str, Any]]] = None
 
     @classmethod
     def from_dict(cls, obs_dict: Dict[str, Any]) -> "Observation":
@@ -214,6 +218,7 @@ class Observation:
             map_image=map_image,
             character_positions=character_positions,
             cliffs=obs_dict.get("cliffs"),
+            power_networks=obs_dict.get("power_networks"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -322,6 +327,11 @@ class Observation:
             **(
                 {"cliffs": [{"x": c["x"], "y": c["y"]} for c in self.cliffs]}
                 if self.cliffs is not None
+                else {}
+            ),
+            **(
+                {"power_networks": [dict(n) for n in self.power_networks]}
+                if self.power_networks is not None
                 else {}
             ),
         }

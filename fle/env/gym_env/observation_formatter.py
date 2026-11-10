@@ -7,6 +7,61 @@ from fle.commons.constants import REWARD_OVERRIDE_KEY
 from fle.env.gym_env.observation import CLIFF_LIMIT, CLIFF_RADIUS, Observation
 
 
+# Power network fields: powers in W, energies in J
+POWER_KEYS = {"production", "consumption", "demand", "generator_max"}
+ENERGY_KEYS = {"accumulator_charge", "accumulator_capacity"}
+# At most this many electric networks are listed in the Power section
+POWER_NETWORKS_SHOWN = 10
+
+
+def _si(value: float, unit: str) -> str:
+    value = float(value)
+    for factor, prefix in ((1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if abs(value) >= factor:
+            scaled = value / factor
+            text = f"{scaled:.1f}".rstrip("0").rstrip(".")
+            return f"{text} {prefix}{unit}"
+    return f"{value:.0f} {unit}"
+
+
+def format_watts(value: float) -> str:
+    """900000 -> "900 kW"."""
+    return _si(value, "W")
+
+
+def format_joules(value: float) -> str:
+    """5000000 -> "5 MJ"."""
+    return _si(value, "J")
+
+
+def format_network(n: Dict[str, Any]) -> str:
+    """One electric network summary on one line (the power pole GUI's numbers)."""
+    parts = [
+        f"production {format_watts(n.get('production') or 0)}"
+        f" (generators max {format_watts(n.get('generator_max') or 0)})",
+        f"consumption {format_watts(n.get('consumption') or 0)}",
+        f"demand {format_watts(n.get('demand') or 0)}",
+    ]
+    satisfaction = n.get("satisfaction")
+    parts.append(
+        f"satisfaction {satisfaction:.0%}"
+        if isinstance(satisfaction, (int, float))
+        else "satisfaction - (no demand)"
+    )
+    parts.append(
+        f"consumers {n.get('consumers') or 0}"
+        f" (low power {n.get('low_power') or 0}, no power {n.get('no_power') or 0})"
+    )
+    if n.get("accumulators"):
+        parts.append(
+            f"accumulators {n['accumulators']}:"
+            f" {format_joules(n.get('accumulator_charge') or 0)}"
+            f" / {format_joules(n.get('accumulator_capacity') or 0)}"
+        )
+    counts = f"poles {n.get('poles') or 0}, generators {n.get('generators') or 0}"
+    return ", ".join(parts) + ", " + counts
+
+
 @dataclass
 class FormattedObservation:
     """Container for formatted observation strings"""
@@ -111,7 +166,15 @@ class FormattedObservation:
     The nearest cliffs within 40 tiles of you (up to 25, nearest first): (12, -30), (14, -30)
     Empty when the cliffs are unknown."""
 
-    raw_str: str
+    power_str: str = ""
+    """Formatted string summarising each electric network (power pole GUI).
+    Example:
+    ### Power
+    - network 1: production 900 kW (generators max 900 kW), consumption 900 kW,
+      demand 1.2 MW, satisfaction 75%, consumers 4 (low power 4, no power 0), ...
+    Empty when the networks are unknown."""
+
+    raw_str: str = ""
     """Complete formatted observation combining all components.
     Example:
     ### Inventory
@@ -178,6 +241,7 @@ class BasicObservationFormatter:
         include_game_info: bool = True,
         include_character_positions: bool = True,
         include_cliffs: bool = True,
+        include_power: bool = True,
     ):
         """Initialize the formatter with flags for which fields to include"""
         self.include_inventory = include_inventory
@@ -192,6 +256,7 @@ class BasicObservationFormatter:
         self.include_game_info = include_game_info
         self.include_character_positions = include_character_positions
         self.include_cliffs = include_cliffs
+        self.include_power = include_power
 
     @staticmethod
     def format_inventory(inventory: List[Dict[str, Any]]) -> str:
@@ -760,6 +825,33 @@ class BasicObservationFormatter:
             f"(up to {CLIFF_LIMIT}, nearest first): {points}"
         )
 
+    @staticmethod
+    def format_power(networks: Optional[List[Dict[str, Any]]]) -> str:
+        """Format the electric network summaries, one line per network.
+
+        Args:
+            networks: List of network summary dicts (get_power_networks), or None
+                if unknown
+
+        Returns:
+            Formatted string, or "" when the networks are unknown
+        """
+        if networks is None:
+            return ""
+        if not networks:
+            return "### Power\nNo electric networks."
+        # the biggest networks first; the rest are counted
+        ordered = sorted(
+            networks, key=lambda n: (-(n.get("poles") or 0), n.get("id") or 0)
+        )
+        lines = ["### Power"]
+        for n in ordered[:POWER_NETWORKS_SHOWN]:
+            lines.append(f"- network {n.get('id')}: {format_network(n)}")
+        more = len(ordered) - POWER_NETWORKS_SHOWN
+        if more > 0:
+            lines.append(f"- ({more} more networks)")
+        return "\n".join(lines)
+
     def format(
         self, observation: Observation, last_message_timestamp: float = 0.0
     ) -> FormattedObservation:
@@ -814,6 +906,12 @@ class BasicObservationFormatter:
             cliffs_str = self.format_cliffs(obs_dict.get("cliffs"))
             if cliffs_str:
                 formatted_parts.append(cliffs_str)
+
+        # Add the electric network summaries
+        if self.include_power:
+            power_str = self.format_power(obs_dict.get("power_networks"))
+            if power_str:
+                formatted_parts.append(power_str)
 
         # Add optional components if they exist and are enabled
         if self.include_task:
@@ -885,6 +983,9 @@ class BasicObservationFormatter:
             else "",
             cliffs_str=self.format_cliffs(obs_dict.get("cliffs"))
             if self.include_cliffs
+            else "",
+            power_str=self.format_power(obs_dict.get("power_networks"))
+            if self.include_power
             else "",
             raw_str=raw_str,
         )
@@ -1477,12 +1578,13 @@ class TreeObservationFormatter(BasicObservationFormatter):
 
     @classmethod
     def _compact_fluid_power(cls, key: str, value: Any) -> Optional[str]:
-        """Compact text for fluidboxes and pipe groups, or None to format normally.
+        """Compact text for fluidboxes, pipe groups and power networks, or None to
+        format normally. Powers read like "900 kW", energies like "5 MJ".
 
         fluid_box (one entry per fluidbox holding fluid):
             [water 200/200 input, steam 200/200 165C output]
-        pipes (a pipe group's pipes): their positions, at most
-            GROUP_POSITIONS_SHOWN, then "(N more)".
+        pipes / poles (a pipe group's pipes, a power network's poles): their
+            positions, at most GROUP_POSITIONS_SHOWN, then "(N more)".
         """
         if key == "fluid_box" and isinstance(value, list):
             boxes = []
@@ -1499,8 +1601,16 @@ class TreeObservationFormatter(BasicObservationFormatter):
                     text += f" {str(box['type']).strip(chr(34))}"
                 boxes.append(text)
             return "[" + ", ".join(boxes) + "]"
-        if key == "pipes" and isinstance(value, list):
+        if key in ("pipes", "poles") and isinstance(value, list):
             return cls._compact_positions(value)
+        if key in POWER_KEYS and isinstance(value, (int, float)):
+            return format_watts(value)
+        if key in ENERGY_KEYS and isinstance(value, (int, float)):
+            return format_joules(value)
+        if key == "satisfaction" and isinstance(value, (int, float)):
+            return f"{value:.0%}"
+        if key == "network" and isinstance(value, dict):
+            return format_network(value)
         return None
 
     @classmethod

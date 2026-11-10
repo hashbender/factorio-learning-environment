@@ -35,6 +35,40 @@ def _deduplicate_entities(entities: List[Entity]) -> List[Entity]:
     return list(reversed(unique_entities))
 
 
+# Electric network summary fields an ElectricityGroup takes from its poles
+_NETWORK_KEYS = (
+    "production",
+    "consumption",
+    "demand",
+    "generator_max",
+    "satisfaction",
+    "accumulator_charge",
+    "accumulator_capacity",
+    "consumers",
+    "low_power",
+    "no_power",
+)
+
+
+def _network_status(network: dict, poles: List[Entity]) -> EntityStatus:
+    """The network's state from its summary: NO_POWER when consumers lack power
+    and nothing is produced, LOW_POWER when some consumers have low or no power,
+    WORKING when power is consumed. Without a summary (older servers): WORKING if
+    any pole reports a flow, else NOT_PLUGGED_IN_ELECTRIC_NETWORK."""
+    if not network:
+        if any((pole.flow_rate or 0) > 0 for pole in poles):
+            return EntityStatus.WORKING
+        return EntityStatus.NOT_PLUGGED_IN_ELECTRIC_NETWORK
+    lacking = (network.get("low_power") or 0) + (network.get("no_power") or 0)
+    if lacking and not network.get("production"):
+        return EntityStatus.NO_POWER
+    if lacking:
+        return EntityStatus.LOW_POWER
+    if network.get("consumption"):
+        return EntityStatus.WORKING
+    return EntityStatus.NORMAL
+
+
 def _construct_group(
     id: int, entities: List[Entity], prototype: Prototype, position: Position
 ) -> EntityGroup:
@@ -115,18 +149,17 @@ def _construct_group(
         Prototype.BigElectricPole,
         Prototype.MediumElectricPole,
     ):
-        if any([pole.flow_rate > 0 for pole in entities]):
-            status = EntityStatus.WORKING
-        else:
-            status = EntityStatus.NOT_PLUGGED_IN_ELECTRIC_NETWORK
         mean_x = mean([pole.position.x for pole in entities])
         mean_y = mean([pole.position.y for pole in entities])
+        network = next((p.network for p in entities if p.network), None) or {}
 
         return ElectricityGroup(
             id=entities[0].electrical_id,
+            electrical_id=entities[0].electrical_id,
             poles=list(set(entities)),
-            status=status,
+            status=_network_status(network, entities),
             position=Position(x=mean_x, y=mean_y),
+            **{k: network.get(k) for k in _NETWORK_KEYS if k in network},
         )
     else:
         return WallGroup(
