@@ -214,18 +214,19 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
                 error("\"entity already exists at the target position " .. serpent.line(existing_entity.position) .. " - remove this before continuing.\"" )
             end
 
-            -- Get entity prototype's collision box
+            -- Get entity prototype's collision box, turned for an east or west facing entity
             local collision_box = entity_prototype.collision_box
-            -- Calculate the area to check for water
-            local check_area = {
-                {position.x - collision_box.left_top.x/2, position.y - collision_box.left_top.y/2},
-                {position.x + collision_box.right_bottom.x/2, position.y + collision_box.right_bottom.y/2}
-            }
+            local lt_x, lt_y = collision_box.left_top.x, collision_box.left_top.y
+            local rb_x, rb_y = collision_box.right_bottom.x, collision_box.right_bottom.y
+            if entity_direction == defines.direction.east or entity_direction == defines.direction.west then
+                lt_x, lt_y, rb_x, rb_y = lt_y, lt_x, rb_y, rb_x
+            end
             rendering.draw_circle{only_in_alt_mode=true, width = 1, color = {r = 0, g = 1, b = 0}, surface = player.surface, radius = 0.5, filled = false, target = {x=position.x, y=position.y}, time_to_live = 12000}
 
-            -- Check each tile in the entity's footprint for water
-            for x = math.floor(check_area[1][1]), math.ceil(check_area[2][1]) do
-                for y = math.floor(check_area[1][2]), math.ceil(check_area[2][2]) do
+            -- Check each tile the collision box covers for water (only those tiles, not the
+            -- neighbouring ones: an entity may stand next to water)
+            for x = math.floor(position.x + lt_x), math.ceil(position.x + rb_x) - 1 do
+                for y = math.floor(position.y + lt_y), math.ceil(position.y + rb_y) - 1 do
                     local tile = player.surface.get_tile(x, y)
                     if is_water_tile(tile.name) then
                         error("\"Cannot place " .. entity .. " at " .. position.x .. ", " .. position.y ..
