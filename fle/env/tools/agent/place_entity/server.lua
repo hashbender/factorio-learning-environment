@@ -111,6 +111,17 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
     local player = storage.utils.ensure_valid_character(player_index)
     local position = {x = x, y = y}
 
+    -- The item and the entity it builds usually share a name, but not always
+    -- (Factorio 2.0: the rail item builds a straight-rail). Inventory checks use
+    -- the item; placement uses the entity.
+    local item_name = entity
+    if prototypes.entity[entity] == nil then
+        local item = prototypes.item[entity]
+        if item and item.place_result then
+            entity = item.place_result.name
+        end
+    end
+
     if not direction then
         direction = 0
     end
@@ -141,9 +152,9 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
     end
 
     local function validate_inventory()
-        local count = player.get_item_count(entity)
+        local count = player.get_item_count(item_name)
         if count == 0 then
-            local name = entity:gsub(" ", "_"):gsub("-", "_")
+            local name = item_name:gsub(" ", "_"):gsub("-", "_")
             local inv_contents = storage.utils.format_inventory_for_error(player)
             error("\"No " .. name .. " in inventory. Current inventory: " .. inv_contents .. "\"")
         end
@@ -152,7 +163,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
     -- Slow placement implementation
     local function slow_place()
         -- Set cursor ghost
-        player.cursor_ghost = entity
+        player.cursor_ghost = item_name
 
         -- Select the target position
         player.update_selected_entity(position)
@@ -177,7 +188,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
             }
 
             if placed_entity then
-                player.remove_item{name = entity, count = 1}
+                player.remove_item{name = item_name, count = 1}
                 player.cursor_ghost = nil  -- Clear the ghost
                 return storage.utils.serialize_entity(placed_entity)
             else
@@ -273,7 +284,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
                         direction = entity_direction,
                     }
                     if have_built then
-                        player.remove_item{name = entity, count = 1}
+                        player.remove_item{name = item_name, count = 1}
                         -- game.print("Placed " .. entity .. " at " .. new_position.x .. ", " .. new_position.y)
                         return storage.actions.get_entity(player_index, entity, new_position.x, new_position.y)
                     end
@@ -375,7 +386,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
         }
 
         if have_built then
-            player.remove_item{name = entity, count = 1}
+            player.remove_item{name = item_name, count = 1}
             -- game.print("Placed " .. entity .. " at " .. position.x .. ", " .. position.y)
 
             -- Find and return the placed entity

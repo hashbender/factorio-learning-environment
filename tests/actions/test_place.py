@@ -382,3 +382,12 @@ def test_cannot_place_at_water(game):
     except:
         failed = False
     assert not failed
+
+
+def test_place_rail(configure_game):
+    # Factorio 2.0: the rail item builds a straight-rail entity
+    game = configure_game(inventory={"rail": 2}, reset_position=True)
+    rail = game.place_entity(Prototype.Rail, position=Position(x=1, y=1))
+    assert rail.name == "straight-rail"
+    assert game.inspect_inventory()[Prototype.Rail] == 1
+    assert game.get_entities({Prototype.StraightRail})
