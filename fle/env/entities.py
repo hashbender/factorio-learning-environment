@@ -2,7 +2,13 @@ import re
 from typing import Tuple, Any, Union, Dict, Literal
 from typing import List, Optional
 from enum import Enum, IntFlag
-from pydantic import ConfigDict, BaseModel, model_validator, model_serializer
+from pydantic import (
+    ConfigDict,
+    BaseModel,
+    field_validator,
+    model_validator,
+    model_serializer,
+)
 
 
 class Layer(IntFlag):
@@ -733,7 +739,14 @@ class MiningDrill(StaticEntity):
     The direction of the drill is where the drop_position is oriented towards"""
 
     drop_position: Position
-    resources: List[Ingredient]
+    # empty when the mining area has no resources left (status NO_MINABLE_RESOURCES)
+    resources: List[Ingredient] = []
+
+    @field_validator("resources", mode="before")
+    @classmethod
+    def _no_resources(cls, v):
+        # the server sends an empty Lua table, which arrives as {}
+        return [] if v == {} else v
 
 
 class ElectricMiningDrill(MiningDrill, Electric):

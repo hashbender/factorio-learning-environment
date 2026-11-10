@@ -215,3 +215,24 @@ def test_lab_repr_shows_the_detail():
         status_detail="missing logistic-science-pack (0 of 1) for logistics-2",
     )
     assert "status_detail='missing logistic-science-pack" in repr(lab)
+
+
+def test_drill_with_nothing_to_mine_still_builds():
+    # get_entities drops empty values, so an exhausted drill has no resources key
+    from fle.env.entities import BurnerMiningDrill
+
+    drill = BurnerMiningDrill(
+        name="burner-mining-drill",
+        position=Position(x=1, y=1),
+        drop_position=Position(x=1, y=-0.3),
+        energy=0,
+        dimensions=Dimensions(width=2, height=2),
+        tile_dimensions=TileDimensions(tile_width=2, tile_height=2),
+        health=100,
+        status=EntityStatus.NO_MINABLE_RESOURCES,
+        status_detail="no minable resources in the mining area (0, 0) to (2, 2)",
+    )
+    assert drill.resources == []
+    # get_entity keeps the empty Lua table, which arrives as {}
+    assert BurnerMiningDrill(**{**drill.__dict__, "resources": {}}).resources == []
+    assert "status_detail='no minable resources" in repr(drill)
