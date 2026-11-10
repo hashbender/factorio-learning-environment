@@ -1,4 +1,5 @@
 import math
+import re
 from typing import Tuple, Any, Union, Dict, Literal
 from typing import List, Optional
 from enum import Enum, IntFlag
@@ -38,6 +39,10 @@ class Layer(IntFlag):
         | LABELS
         | ELECTRICITY
     )
+
+
+# defines.entity_status names (lower case words and underscores)
+_STATUS_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
 
 # This should really live in `types`, but it's here to prevent a circular import
@@ -154,6 +159,19 @@ class EntityStatus(Enum):
 
     def __repr__(self):
         return f"EntityStatus.{self.name}"
+
+    @classmethod
+    def _missing_(cls, value):
+        # A status the game reports but this enum does not list yet (a newer
+        # Factorio, a mod) would make every entity in that state fail to
+        # validate, and get_entities would leave it out. Accept any status
+        # name, as a pseudo-member that is cached but not iterated.
+        if not isinstance(value, str) or not _STATUS_NAME.fullmatch(value):
+            return None
+        member = object.__new__(cls)
+        member._name_ = value.upper()
+        member._value_ = value
+        return cls._value2member_map_.setdefault(value, member)
 
     @classmethod
     def from_string(cls, status_string):

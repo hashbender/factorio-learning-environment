@@ -295,6 +295,9 @@ FACTORIO_2_0_RAIL_ENTITIES = (
 # Prototype members that name a recipe, not an item
 RECIPE_ONLY = ("advanced-oil-processing", "coal-liquefaction")
 
+# Entities that no item places (prototypes.entity, base mod only)
+FACTORIO_2_0_OTHER_ENTITIES = ("rocket-silo-rocket",)
+
 # FLE's own entity groups; not game prototypes
 FLE_GROUPS = ("belt-group", "pipe-group", "electricity-group")
 
@@ -375,6 +378,7 @@ def test_every_prototype_names_a_factorio_2_0_prototype():
         set(FACTORIO_2_0_ITEMS)
         | set(FACTORIO_2_0_FLUIDS)
         | set(FACTORIO_2_0_RAIL_ENTITIES)
+        | set(FACTORIO_2_0_OTHER_ENTITIES)
         | set(RECIPE_ONLY)
         | set(FLE_GROUPS)
     )
@@ -401,8 +405,9 @@ def test_rocket_control_unit_is_removed():
 
 def test_coal_liquefaction_spelling():
     assert Prototype.CoalLiquefaction.value[0] == "coal-liquefaction"
-    with pytest.raises(AttributeError, match="CoalLiquefaction"):
-        Prototype.CoalLiquifaction
+    # the old misspelled name still works, as an alias that is not iterated
+    assert Prototype.CoalLiquifaction is Prototype.CoalLiquefaction
+    assert "CoalLiquifaction" not in [member.name for member in Prototype]
 
 
 @pytest.mark.parametrize("name", FACTORIO_2_0_RAIL_ENTITIES)
@@ -430,3 +435,22 @@ def test_rocket_is_the_ammo_item():
 def test_every_factorio_2_0_entity_status_is_known():
     values = {status.value for status in EntityStatus}
     assert sorted(set(FACTORIO_2_0_ENTITY_STATUSES) - values) == []
+
+
+def test_rocket_silo_rocket_decodes():
+    assert prototype_by_name["rocket-silo-rocket"] is Prototype.RocketSiloRocket
+    assert Prototype.RocketSiloRocket.entity_class is ent.Rocket
+
+
+def test_unknown_entity_status_is_accepted():
+    status = EntityStatus("some_future_status")
+    assert status.value == "some_future_status"
+    assert status.name == "SOME_FUTURE_STATUS"
+    assert EntityStatus("some_future_status") is status
+    assert status not in list(EntityStatus)
+
+
+@pytest.mark.parametrize("value", ["", "Working", "no power", 3, None])
+def test_malformed_entity_status_is_refused(value):
+    with pytest.raises(ValueError):
+        EntityStatus(value)
