@@ -34,13 +34,14 @@ Returns a ResourcePatch object containing:
 ```python
 ResourcePatch(
     name=str,              # Resource name
-    size=int,              # Total resource amount
+    size=int,              # Total resource amount (crude oil: per second, see below)
     bounding_box=BoundingBox(
         left_top=Position(x,y),
         right_bottom=Position(x,y),
         left_bottom=Position(x,y),
         right_top=Position(x,y)
-    )
+    ),
+    wells=None             # Crude oil only: number of wells in the field
 )
 ```
 
@@ -66,4 +67,16 @@ water_patch = get_resource_patch(
     position=Position(x=0, y=0)
 )
 print(f"Water area contains {water_patch.size} tiles")
+```
+
+### 3. Crude Oil
+
+Crude oil comes from separate wells, and each well's amount is a yield (300000 = 100%,
+10 crude oil per second for a pumpjack in Factorio 2.0). For crude oil the patch is the
+field (wells within 30 tiles of each other), `size` is the crude oil per second that one
+pumpjack on every well gives at base mining speed, and `wells` is the number of wells.
+
+```python
+oil_field = get_resource_patch(Resource.CrudeOil, position=Position(x=0, y=0))
+print(f"{oil_field.wells} wells, {oil_field.size} crude oil per second")
 ```

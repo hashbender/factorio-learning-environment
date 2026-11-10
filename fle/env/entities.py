@@ -487,8 +487,11 @@ class BuildingBox(BaseModel):
 
 class ResourcePatch(BaseModel):
     name: str
-    size: int
+    # Ores: total amount. Water: tiles. Wood: total wood. Crude oil: crude oil per
+    # second with one pumpjack on every well (base mining speed; 10/s = 100% yield)
+    size: Union[int, float]
     bounding_box: BoundingBox
+    wells: Optional[int] = None  # Crude oil: number of wells in the field
 
 
 class Dimensions(BaseModel):
@@ -839,9 +842,11 @@ class PumpJack(MiningDrill, FluidHandler, Electric):
     Important: The PumpJack needs to be placed on exact crude oil tiles
     """
 
+    # Crude oil per second from the well under it at base mining speed (no mining
+    # productivity); 10/s = 100% yield. resources[].count is the well's raw amount.
+    output_per_second: Optional[float] = None
     _height: float = 3
     _width: float = 3
-    pass
 
 
 class SolarPanel(ElectricalProducer):
