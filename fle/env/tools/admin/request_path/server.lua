@@ -78,7 +78,9 @@ storage.actions.request_path = function(player_index, start_x, start_y, goal_x, 
                 train = true,
                 water_tile = true,
                 object = true,
-                transport_belt = true
+                transport_belt = true,
+                -- cliffs block belts, pipes and poles: route around them
+                cliff = true
             }
         },
         start = start_position,
