@@ -437,9 +437,13 @@ class Technology(enum.Enum):
     BulkInserter = "bulk-inserter"
     StackInserter = "bulk-inserter"
     InserterCapacityBonus1 = "inserter-capacity-bonus-1"
-    StackInserterCapacity1 = "inserter-capacity-bonus-1"  # alias of InserterCapacityBonus1
+    StackInserterCapacity1 = (
+        "inserter-capacity-bonus-1"  # alias of InserterCapacityBonus1
+    )
     InserterCapacityBonus2 = "inserter-capacity-bonus-2"
-    StackInserterCapacity2 = "inserter-capacity-bonus-2"  # alias of InserterCapacityBonus2
+    StackInserterCapacity2 = (
+        "inserter-capacity-bonus-2"  # alias of InserterCapacityBonus2
+    )
 
     # Storage technologies
     StorageTanks = "fluid-handling"
