@@ -10,6 +10,7 @@ def game(instance):
         **instance.initial_inventory,
         "stone-furnace": 10,
         "burner-inserter": 50,
+        "inserter": 1,
         "offshore-pump": 4,
         "pipe": 100,
         "small-electric-pole": 50,
@@ -56,6 +57,7 @@ def test_connect_steam_engine_to_assembler_with_electricity_poles(game):
     :return:
     """
     steam_engine = game.place_entity(Prototype.SteamEngine, position=Position(x=0, y=0))
+    game.move_to(Position(x=7, y=0))  # within reach of where the assembler goes
     assembler = game.place_entity_next_to(
         Prototype.AssemblingMachine1,
         reference_position=steam_engine.position,
@@ -313,6 +315,7 @@ def test_pole_groups(game):
         Prototype.Boiler, reference_position=offshore_pump.position, spacing=3
     )
     boiler = game.insert_item(Prototype.Coal, boiler, 10)
+    game.move_to(boiler.position)  # within reach of where the steam engine goes
     steam_engine = game.place_entity_next_to(
         Prototype.SteamEngine, reference_position=boiler.position, spacing=3
     )

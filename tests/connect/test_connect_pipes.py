@@ -672,6 +672,7 @@ def test_connect_steam_engine_battery(game):
     assert pump1_pipes, "Failed to connect first pump to first boiler"
 
     # Place two steam engines after the first boiler
+    game.move_to(boiler1.position)  # within reach of where the engine goes
     steam_engine1a = game.place_entity_next_to(
         Prototype.SteamEngine,
         reference_position=boiler1.position,
@@ -679,6 +680,7 @@ def test_connect_steam_engine_battery(game):
         spacing=2,
     )
 
+    game.move_to(steam_engine1a.position)  # within reach of where the engine goes
     steam_engine1b = game.place_entity_next_to(
         Prototype.SteamEngine,
         reference_position=steam_engine1a.position,
@@ -721,6 +723,7 @@ def test_connect_steam_engine_battery(game):
     assert pump2_pipes, "Failed to connect second pump to second boiler"
 
     # Place two more steam engines
+    game.move_to(boiler2.position)  # within reach of where the engine goes
     steam_engine2a = game.place_entity_next_to(
         Prototype.SteamEngine,
         reference_position=boiler2.position,
@@ -728,6 +731,7 @@ def test_connect_steam_engine_battery(game):
         spacing=2,
     )
 
+    game.move_to(steam_engine2a.position)  # within reach of where the engine goes
     steam_engine2b = game.place_entity_next_to(
         Prototype.SteamEngine,
         reference_position=steam_engine2a.position,
