@@ -163,3 +163,12 @@ def rotate_entity(game, entity):
     entity = game.rotate_entity(entity, direction=Direction.UP)
 
     assert entity.direction.value == Direction.UP.value
+
+
+def test_rotate_out_of_reach(game):
+    inserter = game.place_entity(
+        Prototype.BurnerInserter, position=Position(x=0, y=0), direction=Direction.UP
+    )
+    game.move_to(Position(x=30, y=0))
+    with pytest.raises(Exception, match="too far away"):
+        game.rotate_entity(inserter, Direction.RIGHT)

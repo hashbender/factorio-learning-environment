@@ -22,6 +22,11 @@ storage.actions.set_entity_recipe = function(player_index, recipe_name, x, y)
     if closest_building then
         local serialized
 
+        -- A player can only set a recipe or filter on an entity within reach
+        if not player.can_reach_entity(closest_building) then
+            error("Entity at ("..closest_building.position.x..", "..closest_building.position.y..") is too far away from your position of ("..player.position.x..", "..player.position.y.."), move closer.")
+        end
+
         -- Handle different entity types
         if closest_building.type == "inserter" then
             -- Factorio 2.0: all inserters can filter, enable filtering and set the filter

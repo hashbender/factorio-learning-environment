@@ -24,3 +24,12 @@ def test_set_entity_recipe(game):
     prototype_name, _ = Prototype.IronGearWheel.value
 
     assert assembling_machine.recipe == prototype_name
+
+
+def test_set_entity_recipe_out_of_reach(game):
+    assembling_machine = game.place_entity(
+        Prototype.AssemblingMachine1, position=Position(x=0, y=0)
+    )
+    game.move_to(Position(x=30, y=0))
+    with pytest.raises(Exception, match="too far away"):
+        game.set_entity_recipe(assembling_machine, Prototype.IronGearWheel)
