@@ -536,6 +536,60 @@ local function get_inverse_entity_direction(entity, factorio_direction)
     end
 end
 
+-- An assembling machine's fluid ports as the game has them. For each fluid box
+-- with an input or output role, the target tile of each pipe connection (the
+-- tile a pipe must occupy), typed with the fluid of the box (its filter, or the
+-- recipe's fluid ingredient or product in order). Returns {all, inputs, outputs}.
+local function read_assembler_fluid_ports(entity)
+    local fluidbox = entity.fluidbox
+    local recipe = entity.get_recipe()
+    local fluid_in, fluid_out = {}, {}
+    if recipe then
+        for _, item in pairs(recipe.ingredients or {}) do
+            if item.type == "fluid" then table.insert(fluid_in, item.name) end
+        end
+        for _, item in pairs(recipe.products or {}) do
+            if item.type == "fluid" then table.insert(fluid_out, item.name) end
+        end
+    end
+    local all, inputs, outputs = {}, {}, {}
+    local n_in, n_out = 0, 0
+    for i = 1, #fluidbox do
+        local proto = fluidbox.get_prototype(i)
+        if type(proto) == "table" and proto.object_name == nil then
+            proto = proto[1]
+        end
+        local role = proto and proto.production_type
+        local connections = fluidbox.get_pipe_connections(i)
+        if role ~= "input" and role ~= "output" then
+            local flow = connections[1] and connections[1].flow_direction
+            if flow == "input" or flow == "output" then role = flow end
+        end
+        local filter = fluidbox.get_filter(i)
+        local fluid = filter and filter.name
+        if role == "input" then
+            n_in = n_in + 1
+            fluid = fluid or fluid_in[n_in]
+        elseif role == "output" then
+            n_out = n_out + 1
+            fluid = fluid or fluid_out[n_out]
+        end
+        for _, connection in pairs(connections) do
+            local target = connection.target_position
+            if target and connection.connection_type ~= "underground" then
+                table.insert(all, {x = target.x, y = target.y})
+                local point = {x = target.x, y = target.y, type = "\"" .. (fluid or "") .. "\""}
+                if role == "input" then
+                    table.insert(inputs, point)
+                elseif role == "output" then
+                    table.insert(outputs, point)
+                end
+            end
+        end
+    end
+    return {all = all, inputs = inputs, outputs = outputs}
+end
+
 -- Helper function to check if a position is valid (not colliding with water or other impassable tiles)
 local function is_valid_connection_point(surface, position)
     -- Get the tile at the position
@@ -1092,38 +1146,29 @@ storage.utils.serialize_entity = function(entity)
     end
 
 
-    if entity.type == "assembling-machine" then
-        local x, y = entity.position.x, entity.position.y
-        serialized.connection_points = {}
-
-        -- Assembling machine connection points are similar to chemical plants
-        if entity.direction == defines.direction.north then
-            table.insert(serialized.connection_points,
-                    {x = x, y = y - 2
-                    })
-        elseif entity.direction == defines.direction.south then
-            table.insert(serialized.connection_points,
-                    {x = x, y = y + 2
-                    })
-        elseif entity.direction == defines.direction.east then
-            table.insert(serialized.connection_points,
-                    {x = x + 2, y = y
-                    })
-        elseif entity.direction == defines.direction.west then
-            table.insert(serialized.connection_points,
-                    {x = x - 2, y = y
-                    })
-        end
-
-        -- Filter out any invalid connection points
-        local filtered_connection_points = {}
-        for _, point in ipairs(serialized.connection_points) do
-            if is_valid_connection_point(game.surfaces[1], point) then
-                table.insert(filtered_connection_points, point)
+    if entity.type == "assembling-machine" and entity.name ~= "oil-refinery" and entity.name ~= "chemical-plant" then
+        -- Read the ports from the game (LuaFluidBox.get_pipe_connections): the tile a
+        -- pipe must occupy for each active fluid box. An assembling machine's fluid
+        -- boxes are only active while its recipe uses a fluid, so a machine with no
+        -- fluid recipe has no connection points. Inputs come first, then outputs.
+        local ok, ports = pcall(read_assembler_fluid_ports, entity)
+        if ok and ports then
+            serialized.connection_points = ports.all
+            -- connection_points is filtered for water with every other entity's below
+            local function on_land(points)
+                local kept = {}
+                for _, point in ipairs(points) do
+                    if is_valid_connection_point(entity.surface, point) then
+                        table.insert(kept, point)
+                    end
+                end
+                return kept
             end
+            serialized.input_connection_points = on_land(ports.inputs)
+            serialized.output_connection_points = on_land(ports.outputs)
+        else
+            serialized.connection_points = {}
         end
-
-        serialized.connection_points = filtered_connection_points
     end
     -- Add tile dimensions of the entity
     serialized.tile_dimensions = {
