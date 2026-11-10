@@ -254,6 +254,21 @@ class ConnectEntities(Tool):
             and not isinstance(target, (EntityGroup, ElectricityPole))
             and self._is_unpowered(target)
         ):
+            # The poles may stop short of the target (e.g. for adjacent entities they
+            # are built next to the source): add one pole that covers the target and
+            # reaches the network, then check again
+            pole_names = [ct.value[0] for ct in connection_types if ct in poles]
+            if self._cover_with_pole(target, pole_names) and not self._is_unpowered(
+                target
+            ):
+                groups = [
+                    g
+                    for g in self.get_entities(
+                        poles, position=target.position, radius=12
+                    )
+                    if isinstance(g, ElectricityGroup)
+                ]
+                return groups[0] if groups else connection
             # A pole connection to a machine must leave it on an electric network
             raise Exception(
                 f"Poles were placed, but {target.name} at ({target.position.x}, "
@@ -479,6 +494,43 @@ class ConnectEntities(Tool):
 
         points = ", ".join(f"({number(c.x)}, {number(c.y)})" for c in cliffs)
         return f" Cliffs in the area between these points: {points}"
+
+    def _cover_with_pole(self, entity: Entity, pole_names: List[str]) -> bool:
+        """Place one pole (of the first type held) whose supply area covers the entity and
+        that is within wire reach of an existing pole and of the character. True if placed."""
+        name = getattr(entity, "name", None)
+        names = [n for n in pole_names if _PROTOTYPE_NAME.fullmatch(n)]
+        if (
+            not names
+            or not isinstance(name, str)
+            or not _PROTOTYPE_NAME.fullmatch(name)
+        ):
+            return False
+        x, y = float(entity.position.x), float(entity.position.y)
+        lua_names = "{" + ",".join(f"'{n}'" for n in names) + "}"
+        response = self.connection.rcon_client.send_command(
+            f"/sc local c = storage.agent_characters[{self.player_index}]; "
+            f"local t = c.surface.find_entities_filtered{{position = {{{x}, {y}}}, name = '{name}', limit = 1}}[1]; "
+            "if not t then rcon.print('none') return end; "
+            f"local pole; for _, n in ipairs({lua_names}) do if c.get_item_count(n) > 0 then pole = n; break end end; "
+            "if not pole then rcon.print('none') return end; "
+            "local proto = prototypes.entity[pole]; local s = proto.get_supply_area_distance(); "
+            "local wire = proto.get_max_wire_distance(); local box = t.bounding_box; "
+            "local cx, cy = math.floor(t.position.x) + 0.5, math.floor(t.position.y) + 0.5; "
+            "local r = math.ceil(s) + 2; local best, bd; "
+            "for dx = -r, r do for dy = -r, r do "
+            "  local p = {x = cx + dx, y = cy + dy}; "
+            "  if p.x + s > box.left_top.x and p.x - s < box.right_bottom.x and "
+            "     p.y + s > box.left_top.y and p.y - s < box.right_bottom.y and "
+            "     c.can_reach_entity(t) and storage.utils.can_place_entity(c, pole, p, defines.direction.north) and "
+            "     #c.surface.find_entities_filtered{type = 'electric-pole', position = p, radius = wire} > 0 then "
+            "    local d = (p.x - c.position.x) ^ 2 + (p.y - c.position.y) ^ 2; "
+            "    if d <= c.reach_distance ^ 2 and (not bd or d < bd) then best, bd = p, d end end end end; "
+            "if not best then rcon.print('none') return end; "
+            "local e = c.surface.create_entity{name = pole, position = best, force = c.force}; "
+            "if e then c.remove_item{name = pole, count = 1}; rcon.print('placed') else rcon.print('none') end"
+        )
+        return (response or "").strip() == "placed"
 
     def _is_unpowered(self, entity: Entity) -> bool:
         """True if the entity runs on electricity and is not connected to an
