@@ -96,15 +96,20 @@ storage.actions.pickup_entity = function(player_index, x, y, entity, check_reach
                     error("Your inventory is full: no room for " .. item.count .. " " .. item.name .. " from " .. ent.name)
                 end
 
-                -- Insert all items
-                for _, item in pairs(items_to_insert) do
-                    player.insert(item)
-                end
-
-                if ent.can_be_destroyed() then
-                    -- game.print("Picked up placed "..ent.name)
-                    pcall(ent.destroy{raise_destroy=false, do_cliff_correction=false})
+                -- Mine it the way a player does: the entity's item(s) and everything
+                -- in it go to the character, and nothing happens unless all of it
+                -- fits (force = false never spills or destroys items)
+                local mined = ent.mine{
+                    inventory = player.get_main_inventory(),
+                    force = false,
+                    raise_destroyed = false
+                }
+                if mined then
                     return true
+                end
+                if ent.valid then
+                    error("Your inventory is full: no room for everything in " .. ent.name ..
+                        " at (" .. ent.position.x .. ", " .. ent.position.y .. ")")
                 end
             end
         end
