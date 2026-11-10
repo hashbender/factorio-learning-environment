@@ -86,6 +86,9 @@ class Observation:
     # Resource patches near the factory (get_resource_reserves: name, amount,
     # tiles, bounding box per patch), or None when they could not be read
     resources: Optional[Dict[str, Any]] = None
+    # Roboport networks, ghosts, deconstruction orders and blueprint placements
+    # (get_construction_status), or None when there are none or they could not be read
+    construction: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, obs_dict: Dict[str, Any]) -> "Observation":
@@ -230,6 +233,7 @@ class Observation:
             cliffs=obs_dict.get("cliffs"),
             power_networks=obs_dict.get("power_networks"),
             resources=obs_dict.get("resources"),
+            construction=obs_dict.get("construction"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -348,6 +352,11 @@ class Observation:
             **(
                 {"resources": dict(self.resources)}
                 if self.resources is not None
+                else {}
+            ),
+            **(
+                {"construction": dict(self.construction)}
+                if self.construction is not None
                 else {}
             ),
         }

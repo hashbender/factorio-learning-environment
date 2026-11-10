@@ -366,3 +366,215 @@ storage.utils.note_dropped_direction = function(serialized, placed, requested_di
     table.insert(serialized.warnings, "\"" .. msg .. "\"")
     return serialized
 end
+
+-- Blueprints, ghosts and construction robots ------------------------------------------------
+-- Blueprints are real blueprint items held in a script inventory (game.create_inventory), so
+-- they are saved with the map. Ghosts are built only by construction robots, by the game.
+
+storage.utils.BLUEPRINT_LIMIT = 20
+storage.utils.BLUEPRINT_ENTITY_LIMIT = 500
+storage.utils.PLACEMENTS_KEPT = 10
+
+-- A table as JSON, hex encoded: dump() writes strings unquoted, so this survives the reply
+storage.utils.hex_json = function(t)
+    local json = helpers.table_to_json(t)
+    return "\"" .. (json:gsub(".", function(c) return string.format("%02x", c:byte()) end)) .. "\""
+end
+
+storage.utils.blueprint_store = function()
+    local s = storage.fmg_blueprints
+    if not (s and s.inventory and s.inventory.valid) then
+        s = {inventory = game.create_inventory(storage.utils.BLUEPRINT_LIMIT), names = {},
+             placements = {}, next_placement = 1}
+        storage.fmg_blueprints = s
+    end
+    if not (s.scratch and s.scratch.valid) then
+        s.scratch = game.create_inventory(1)
+    end
+    return s
+end
+
+storage.utils.blueprint_names = function(store)
+    local names = {}
+    for name in pairs(store.names) do table.insert(names, name) end
+    table.sort(names)
+    return names
+end
+
+storage.utils.get_blueprint_stack = function(name)
+    local store = storage.utils.blueprint_store()
+    local slot = store.names[name]
+    local stack = slot and store.inventory[slot]
+    if not (stack and stack.valid_for_read and stack.is_blueprint) then
+        local names = storage.utils.blueprint_names(store)
+        error("\"No blueprint named " .. tostring(name) .. ". Saved blueprints: " ..
+              (#names > 0 and table.concat(names, ", ") or "none") .. "\"")
+    end
+    return stack
+end
+
+-- Tile footprint of an entity facing a direction (16-direction values)
+storage.utils.entity_footprint = function(name, direction)
+    local p = prototypes.entity[name]
+    local w, h = 1, 1
+    if p then w, h = p.tile_width or 1, p.tile_height or 1 end
+    if direction == 4 or direction == 12 then w, h = h, w end
+    return w, h
+end
+
+-- The item a robot (or a player) uses to build an entity
+storage.utils.build_item = function(name)
+    local p = prototypes.entity[name]
+    local items = p and p.items_to_place_this
+    if items and items[1] then
+        return items[1].name, items[1].count or 1
+    end
+    return nil, 0
+end
+
+-- Entities, counts, footprint and build cost of a blueprint; positions relative to its centre
+storage.utils.blueprint_info = function(name, stack, with_entities)
+    local ents = stack.get_blueprint_entities() or {}
+    local counts, items = {}, {}
+    local x1, y1, x2, y2 = math.huge, math.huge, -math.huge, -math.huge
+    for _, e in ipairs(ents) do
+        counts[e.name] = (counts[e.name] or 0) + 1
+        local item, n = storage.utils.build_item(e.name)
+        if item then items[item] = (items[item] or 0) + n end
+        local w, h = storage.utils.entity_footprint(e.name, e.direction or 0)
+        x1 = math.min(x1, e.position.x - w / 2); x2 = math.max(x2, e.position.x + w / 2)
+        y1 = math.min(y1, e.position.y - h / 2); y2 = math.max(y2, e.position.y + h / 2)
+    end
+    if #ents == 0 then x1, y1, x2, y2 = 0, 0, 0, 0 end
+    local info = {name = name, entity_count = #ents, entities = counts, items = items,
+                  width = x2 - x1, height = y2 - y1}
+    if with_entities then
+        local cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        local list = {}
+        for _, e in ipairs(ents) do
+            table.insert(list, {name = e.name, x = e.position.x - cx, y = e.position.y - cy,
+                                direction = e.direction or 0, recipe = e.recipe})
+        end
+        info.entity_list = list
+    end
+    return info, ents, {x1, y1, x2, y2}
+end
+
+-- Why the construction robots aren't building or removing an entity, or nil if nothing stops them
+storage.utils.robot_blocker = function(entity, force, item)
+    local nets = entity.surface.find_logistic_networks_by_construction_area(entity.position, force)
+    if #nets == 0 then
+        return "not in the construction area of any roboport"
+    end
+    local robots, material = false, item == nil
+    for _, n in ipairs(nets) do
+        if n.all_construction_robots > 0 then robots = true end
+        if item and n.get_item_count(item) > 0 then material = true end
+    end
+    if not robots then
+        return "no construction robots in the roboport network"
+    end
+    if not material then
+        return "no " .. item .. " in the roboport network's storage"
+    end
+    return nil
+end
+
+-- Ghosts, deconstruction orders, robot networks and recent blueprint placements of a force
+storage.utils.construction_status = function(surface, force, origin)
+    local out = {networks = {}, ghosts = 0, ghosts_waiting = {}, deconstruction = 0,
+                 deconstruction_waiting = {}, placements = {}}
+    for _, n in ipairs((force.logistic_networks or {})[surface.name] or {}) do
+        local roboports, unpowered, low = 0, 0, 0
+        for _, cell in ipairs(n.cells) do
+            local owner = cell.owner
+            if owner and owner.valid and owner.type == "roboport" then
+                roboports = roboports + 1
+                if owner.status == defines.entity_status.no_power then unpowered = unpowered + 1
+                elseif owner.status == defines.entity_status.low_power then low = low + 1 end
+            end
+        end
+        local contents = n.get_contents() or {}
+        table.sort(contents, function(a, b) return a.count > b.count end)
+        local storage_items = {}
+        for i = 1, math.min(#contents, 10) do
+            storage_items[contents[i].name] = (storage_items[contents[i].name] or 0) + contents[i].count
+        end
+        if roboports > 0 then
+            table.insert(out.networks, {
+                id = n.network_id, roboports = roboports, roboports_no_power = unpowered,
+                roboports_low_power = low,
+                construction_robots = n.all_construction_robots,
+                construction_robots_idle = n.available_construction_robots,
+                logistic_robots = n.all_logistic_robots,
+                logistic_robots_idle = n.available_logistic_robots,
+                storage = storage_items, storage_item_types = #contents})
+        end
+    end
+    local function nearest_first(list)
+        if origin then
+            table.sort(list, function(a, b)
+                local ax, ay, bx, by = a.position.x - origin.x, a.position.y - origin.y, b.position.x - origin.x, b.position.y - origin.y
+                return ax * ax + ay * ay < bx * bx + by * by
+            end)
+        end
+        return list
+    end
+    local function group(list, item_of, into)
+        local by_reason, checked = {}, 0
+        for _, e in ipairs(nearest_first(list)) do
+            if checked >= 200 then break end
+            checked = checked + 1
+            local reason = storage.utils.robot_blocker(e, force, item_of(e))
+            if reason then
+                local g = by_reason[reason]
+                if not g then
+                    g = {reason = reason, count = 0, x = e.position.x, y = e.position.y}
+                    by_reason[reason] = g
+                    table.insert(into, g)
+                end
+                g.count = g.count + 1
+            end
+        end
+    end
+    local ghosts = surface.find_entities_filtered{type = "entity-ghost", force = force}
+    out.ghosts = #ghosts
+    group(ghosts, function(g) return (storage.utils.build_item(g.ghost_name)) end, out.ghosts_waiting)
+    local marked = {}
+    for _, e in ipairs(surface.find_entities_filtered{to_be_deconstructed = true}) do
+        if e.force == force or e.force.name == "neutral" then table.insert(marked, e) end
+    end
+    out.deconstruction = #marked
+    group(marked, function() return nil end, out.deconstruction_waiting)
+    local store = storage.fmg_blueprints
+    for _, p in ipairs(store and store.placements or {}) do
+        local waiting, built = 0, 0
+        for _, g in ipairs(p.ghosts) do
+            local here = surface.find_entities_filtered{position = {g.x, g.y}, force = force}
+            local state
+            for _, e in ipairs(here) do
+                if e.type == "entity-ghost" and e.ghost_name == g.name then state = "ghost"
+                elseif e.name == g.name and state == nil then state = "built" end
+            end
+            if state == "ghost" then waiting = waiting + 1 elseif state == "built" then built = built + 1 end
+        end
+        table.insert(out.placements, {id = p.id, blueprint = p.blueprint, x = p.x, y = p.y,
+                                      ghosts_placed = #p.ghosts, ghosts_waiting = waiting, built = built})
+    end
+    return out
+end
+
+-- Building an entity where its own ghost stands: the game revives the ghost, keeping the
+-- ghost's direction and settings (recipe...). Returns the built entity, or nil if no ghost.
+storage.utils.revive_ghost = function(player, entity_name, position)
+    local ghosts = player.surface.find_entities_filtered{
+        type = "entity-ghost", ghost_name = entity_name, force = player.force,
+        area = {{position.x - 0.75, position.y - 0.75}, {position.x + 0.75, position.y + 0.75}}}
+    for _, ghost in ipairs(ghosts) do
+        if math.abs(ghost.position.x - position.x) <= 0.75 and math.abs(ghost.position.y - position.y) <= 0.75 then
+            local _, revived = ghost.revive{raise_revive = true}
+            if revived then return revived end
+        end
+    end
+    return nil
+end

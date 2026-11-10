@@ -203,6 +203,29 @@ class ObsSpaces:
         }
     )
 
+    # Roboport networks, ghosts and deconstruction orders (get_construction_status)
+    CONSTRUCTION = spaces.Dict(
+        {
+            "networks": spaces.Sequence(
+                spaces.Dict(
+                    {
+                        "id": POSITIVE_INT,
+                        "roboports": POSITIVE_INT,
+                        "roboports_no_power": POSITIVE_INT,
+                        "roboports_low_power": POSITIVE_INT,
+                        "construction_robots": POSITIVE_INT,
+                        "construction_robots_idle": POSITIVE_INT,
+                        "logistic_robots": POSITIVE_INT,
+                        "logistic_robots_idle": POSITIVE_INT,
+                        "storage_item_types": POSITIVE_INT,
+                    }
+                )
+            ),
+            "ghosts": POSITIVE_INT,
+            "deconstruction": POSITIVE_INT,
+        }
+    )
+
     # Technology structure
     TECHNOLOGY = spaces.Dict(
         {
@@ -354,6 +377,8 @@ class FactorioGymEnv(gym.Env):
                         "patches": spaces.Sequence(ObsSpaces.RESOURCE_PATCH),
                     }
                 ),
+                # Roboport networks, ghosts and deconstruction orders (absent if none)
+                "construction": ObsSpaces.CONSTRUCTION,
             }
         )
 
@@ -487,6 +512,18 @@ class FactorioGymEnv(gym.Env):
             )
         except Exception as e:
             logger.warning(f"Error getting resource reserves: {e}")
+        # Roboport networks, ghosts, deconstruction orders and blueprint placements
+        # (None when there are none, so the section only appears once they exist)
+        construction = None
+        try:
+            status = namespace.get_construction_status()
+            if any(
+                status.get(k)
+                for k in ("networks", "ghosts", "deconstruction", "placements")
+            ):
+                construction = status
+        except Exception as e:
+            logger.warning(f"Error getting construction status: {e}")
 
         observation = Observation(
             raw_text=response.response if response else "",
@@ -506,6 +543,7 @@ class FactorioGymEnv(gym.Env):
             cliffs=cliffs,
             power_networks=power_networks,
             resources=resources,
+            construction=construction,
         )
 
         # Store observation for next step

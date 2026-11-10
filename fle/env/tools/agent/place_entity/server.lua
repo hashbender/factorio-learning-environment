@@ -381,6 +381,15 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
             end
         end
 
+        -- On a ghost of the same entity the game builds the ghost, with the ghost's direction
+        -- and settings, as when a player places the item on it
+        local revived = storage.utils.revive_ghost(player, entity, position)
+        if revived then
+            player.remove_item{name = item_name, count = 1}
+            return storage.utils.serialize_entity(revived)
+        end
+
+        -- Any other ghost under the new entity is removed by the game
         local have_built = player.surface.create_entity{
             name = entity,
             force = player.force,

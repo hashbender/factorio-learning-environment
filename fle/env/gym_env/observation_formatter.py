@@ -192,6 +192,15 @@ class FormattedObservation:
       demand 1.2 MW, satisfaction 75%, consumers 4 (low power 4, no power 0), ...
     Empty when the networks are unknown."""
 
+    construction_str: str = ""
+    """Formatted string summarising roboport networks, ghosts, deconstruction
+    orders and blueprint placements (get_construction_status).
+    Example:
+    ### Construction
+    - roboport network 2: 1 roboports (0 without power), construction robots 10 (10 idle), ...
+    - ghosts: 6; not being built: 6 no iron-gear-wheel in the roboport network's storage (first at (40.5, 20.5))
+    Empty when there are none."""
+
     raw_str: str = ""
     """Complete formatted observation combining all components.
     Example:
@@ -262,6 +271,7 @@ class BasicObservationFormatter:
         include_power: bool = True,
         include_resources: bool = True,
         include_machine_status: bool = True,
+        include_construction: bool = True,
     ):
         """Initialize the formatter with flags for which fields to include"""
         self.include_inventory = include_inventory
@@ -279,6 +289,7 @@ class BasicObservationFormatter:
         self.include_power = include_power
         self.include_resources = include_resources
         self.include_machine_status = include_machine_status
+        self.include_construction = include_construction
 
     def _entities_section(self, entities: List[Any]) -> str:
         return self.format_entities(entities)
@@ -1008,6 +1019,59 @@ class BasicObservationFormatter:
             lines.append(f"- ({more} more)")
         return "\n".join(lines)
 
+    @staticmethod
+    def format_construction(status: Optional[Dict[str, Any]]) -> str:
+        """Format the roboport networks, ghosts, deconstruction orders and blueprint
+        placements (get_construction_status), or "" when there are none."""
+        if not status:
+            return ""
+
+        def number(v) -> str:
+            f = float(v)
+            return str(int(f)) if f == int(f) else f"{f:g}"
+
+        def waiting(groups) -> str:
+            parts = [
+                f"{g.get('count')} {g.get('reason')} (first at "
+                f"({number(g.get('x', 0))}, {number(g.get('y', 0))}))"
+                for g in groups or []
+            ]
+            return "; not being built: " + "; ".join(parts) if parts else ""
+
+        lines = ["### Construction"]
+        for n in status.get("networks") or []:
+            stored = n.get("storage") or {}
+            items = ", ".join(
+                f"{k} {v}" for k, v in sorted(stored.items(), key=lambda kv: -kv[1])
+            )
+            more = (n.get("storage_item_types") or 0) - len(stored)
+            if more > 0:
+                items += f" (+{more} more item types)"
+            lines.append(
+                f"- roboport network {n.get('id')}: {n.get('roboports')} roboports "
+                f"({n.get('roboports_no_power')} without power, {n.get('roboports_low_power')} low power), "
+                f"construction robots {n.get('construction_robots')} ({n.get('construction_robots_idle')} idle), "
+                f"logistic robots {n.get('logistic_robots')} ({n.get('logistic_robots_idle')} idle), "
+                f"storage: {items or 'empty'}"
+            )
+        lines.append(
+            f"- ghosts: {status.get('ghosts', 0)}"
+            + waiting(status.get("ghosts_waiting"))
+        )
+        decon = waiting(status.get("deconstruction_waiting")).replace(
+            "not being built", "not being removed"
+        )
+        lines.append(
+            f"- marked for deconstruction: {status.get('deconstruction', 0)}{decon}"
+        )
+        for p in status.get("placements") or []:
+            lines.append(
+                f"- placement {p.get('id')} (blueprint {p.get('blueprint')} at "
+                f"({number(p.get('x', 0))}, {number(p.get('y', 0))})): {p.get('ghosts_placed')} ghosts placed, "
+                f"{p.get('built')} built, {p.get('ghosts_waiting')} still ghosts"
+            )
+        return "\n".join(lines)
+
     def format(
         self, observation: Observation, last_message_timestamp: float = 0.0
     ) -> FormattedObservation:
@@ -1079,6 +1143,11 @@ class BasicObservationFormatter:
             resources_str = self.format_resources(obs_dict.get("resources"))
             if resources_str:
                 formatted_parts.append(resources_str)
+        # Add roboport networks, ghosts and deconstruction orders (only once they exist)
+        if self.include_construction:
+            construction_str = self.format_construction(obs_dict.get("construction"))
+            if construction_str:
+                formatted_parts.append(construction_str)
 
         # Add optional components if they exist and are enabled
         if self.include_task:
@@ -1156,6 +1225,9 @@ class BasicObservationFormatter:
             else "",
             resources_str=self.format_resources(obs_dict.get("resources"))
             if self.include_resources
+            else "",
+            construction_str=self.format_construction(obs_dict.get("construction"))
+            if self.include_construction
             else "",
             raw_str=raw_str,
         )
