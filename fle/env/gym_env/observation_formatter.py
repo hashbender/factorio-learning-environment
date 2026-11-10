@@ -1621,6 +1621,14 @@ class TreeObservationFormatter(BasicObservationFormatter):
     ) -> Dict[str, str]:
         """Entity-specific compact views (belt groups, inserters). Facts only."""
         try:
+            neighbours = entity.get("neighbours")
+            if (
+                isinstance(neighbours, list)
+                and neighbours
+                and "neighbours" in formatted
+            ):
+                formatted = dict(formatted)
+                formatted["neighbours"] = cls._compact_neighbours(neighbours)
             if entity_name == "belt-group" or (
                 "belts" in entity and isinstance(entity.get("belts"), list)
             ):
@@ -1630,6 +1638,17 @@ class TreeObservationFormatter(BasicObservationFormatter):
         except Exception:
             return formatted
         return formatted
+
+    NEIGHBOURS_CAP = 4
+
+    @classmethod
+    def _compact_neighbours(cls, neighbours: List[Any]) -> str:
+        """[name (x, y), ...] instead of each neighbour's full repr."""
+        parts = []
+        for n in neighbours:
+            name = cls._attr(n, "name", "?")
+            parts.append(f"{name} {cls._pos_str(cls._attr(n, 'position'))}")
+        return "[" + cls._capped(parts, cls.NEIGHBOURS_CAP) + "]"
 
     @classmethod
     def _compact_inserter(

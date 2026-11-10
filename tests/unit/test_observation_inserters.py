@@ -62,3 +62,17 @@ def test_fields_parse_from_server_dict():
     assert ins.pickup_target == "iron-chest"
     assert ins.held_item["count"] == 2
     assert "held=iron-gear-wheel:2" in T.format_entities([ins.__dict__])
+
+
+def test_neighbours_are_compact_and_capped():
+    from fle.env.entities import EntityCore
+
+    near = [
+        EntityCore(name="transport-belt", position=Position(x=4.5 + i, y=3.5))
+        for i in range(6)
+    ]
+    ins = Inserter(name="inserter", neighbours=near, **_kw())
+    text = T.format_entities([ins.__dict__])
+    assert "neighbours=[transport-belt (4.5, 3.5), transport-belt (5.5, 3.5)" in text
+    assert "(2 more)]" in text
+    assert "Position(" not in text
