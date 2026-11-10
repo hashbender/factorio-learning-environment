@@ -113,7 +113,7 @@ for i in range(3):
 # sleep for 5 seconds and check a furnace has plates in it
 sleep(5)
 # update furnace entity
-furnace = game.get_entity(Prototype.StoneFurnace, furnace.position)
+furnace = get_entity(Prototype.StoneFurnace, furnace.position)
 assert inspect_inventory(entity=furnace).get(Prototype.CopperPlate, 0) > 0, f"No copper plates found in furnace at {furnace.position}"
 ```
 

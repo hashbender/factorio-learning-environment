@@ -6,13 +6,13 @@ The get_entities tool allows you to find and retrieve entities in the Factorio w
 
 ```python
 # Get entities by prototype within a radius
-entities = get_entities(prototype=Prototype.IronChest, radius=10)
+entities = get_entities({Prototype.IronChest}, radius=10)
 
 # Get entities by position
 entities = get_entities(position=Position(x=10, y=15), radius=5)
 
 # Get all entities of a certain type around the player
-entities = get_entities(prototype=Prototype.AssemblingMachine1)
+entities = get_entities({Prototype.AssemblingMachine1})
 ```
 
 The function returns a list of Entity objects that match the specified criteria.
@@ -37,14 +37,14 @@ The function returns a list of Entity objects that match the specified criteria.
 
 ```python
 # Find all transport belts within 15 tiles of the player
-belts = get_entities(prototype=Prototype.TransportBelt, radius=15)
+belts = get_entities({Prototype.TransportBelt}, radius=15)
 print(f"Found {len(belts)} transport belts nearby")
 
 # Find the closest furnace to a specific position
 position = Position(x=5, y=10)
-furnaces = get_entities(prototype=Prototype.StoneFurnace, position=position, radius=30)
+furnaces = get_entities({Prototype.StoneFurnace}, position=position, radius=30)
 if furnaces:
-    closest_furnace = min(furnaces, key=lambda entity: entity.position.distance_to(position))
+    closest_furnace = min(furnaces, key=lambda entity: entity.position.distance(position))
     print(f"Closest furnace is at {closest_furnace.position}")
 ```
 
@@ -62,21 +62,21 @@ if furnaces:
 1. **Efficient Searching**
 
 ```python
-# Instead of searching the entire map:
-def find_resource_patch(resource_type: Prototype):
+# get_entities returns placed entities, not resource tiles
+def find_entities(prototype: Prototype):
     # Start with a reasonable radius
     for radius in [20, 40, 60, 80]:
-        resources = get_entities(prototype=resource_type, radius=radius)
-        if resources:
-            return resources
+        entities = get_entities({prototype}, radius=radius)
+        if entities:
+            return entities
 
     # If still not found, search in different directions
     for direction in [(50, 0), (0, 50), (-50, 0), (0, -50)]:
-        pos = Position(x=player.position.x + direction[0],
-                       y=player.position.y + direction[1])
-        resources = get_entities(prototype=resource_type, position=pos, radius=40)
-        if resources:
-            return resources
+        pos = Position(x=player_location.x + direction[0],
+                       y=player_location.y + direction[1])
+        entities = get_entities({prototype}, position=pos, radius=40)
+        if entities:
+            return entities
 
     return []
 ```
@@ -85,7 +85,7 @@ def find_resource_patch(resource_type: Prototype):
 
 ```python
 # Find and interact with all chests containing iron plates
-chests = get_entities(prototype=Prototype.IronChest)
+chests = get_entities({Prototype.IronChest})
 iron_containing_chests = []
 
 for chest in chests:

@@ -22,7 +22,7 @@ def sleep(seconds: int) -> bool
 
 ```python
 # Wait for 10 seconds
-game.sleep(10)
+sleep(10)
 
 # Wait for furnace to smelt items
 furnace = place_entity(Prototype.StoneFurnace, position=Position(0, 0))

@@ -78,8 +78,8 @@ Pipes connect fluid-handling entities:
 
 ```python
 # Connect water flow with over and underground pipes
-water_pipes = connect_entities(offshore_pump, boiler, {Prototype.TransportBelt, Prototype.UndergroundBelt})
-print(f"Connected offshore_pump at {offshore_pump.position} to boiler at {boiler.position} with {pipes}")
+water_pipes = connect_entities(offshore_pump, boiler, {Prototype.Pipe, Prototype.UndergroundPipe})
+print(f"Connected offshore_pump at {offshore_pump.position} to boiler at {boiler.position} with {water_pipes}")
 ```
 
 Key points:
@@ -171,7 +171,7 @@ print(f"Final connection after connecting all inserters to target: {main_connect
 
 When you want to connect entities to existing power pole groups, similar rules apply.
 
-Assume in this example there is a steam engine at Position(x = 1, y = 2) and the drill is at Position(x = 10, y = 28)
+Assume in this example there is a steam engine at Position(x = 1, y = 2), `drill_1` is at Position(x = 10, y = 28) and `drill_2` is at Position(x = 15, y = 28)
 
 ```python
 # create the main connection
@@ -179,13 +179,13 @@ main_power_connection = connect_entities(steam_engine,
                                     drill_1,
                                     Prototype.SmallElectricPole)
 # Print out the whole connection for logs
-print(f"Created the main connection to power drill at {drill_1.position} with steam engine at {steam_engine.position}: {main_connection}")
+print(f"Created the main connection to power drill at {drill_1.position} with steam engine at {steam_engine.position}: {main_power_connection}")
 
 # connect the secondary source to the main power connection
 # Use the first ElectricityGroup from the main connection to connect to
 # Also override the main_power_connection to get the newest ElectricityGroups
 main_power_connection = connect_entities(drill_2,
-                                main_connection,
+                                main_power_connection,
                                 Prototype.SmallElectricPole)
 ```
 

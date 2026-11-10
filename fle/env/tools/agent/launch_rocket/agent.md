@@ -40,7 +40,6 @@ Track the silo's status during construction:
 ```python
 # Check initial state
 assert silo.rocket_parts == 0
-assert silo.launch_count == 0
 
 # Wait for components to be inserted
 sleep(100)  # Adjust time based on inserter speed
