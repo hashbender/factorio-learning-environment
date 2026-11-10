@@ -57,13 +57,18 @@ class InsertItem(Tool):
                 response, elapsed = self.execute(self.player_index, name, 1, x, y, None)
 
                 if isinstance(response, str):
-                    if (
-                        "Could not find" not in response
-                    ):  # Don't raise if belt is just full
-                        raise Exception(
-                            "Could not insert: " + response.split(":")[-1].strip()
-                        )
-                    break
+                    msg = self.get_error_message(response)
+                    # After some items went on, a full belt or an empty
+                    # inventory ends the loop; anything else is an error.
+                    if items_inserted > 0 and (
+                        "lanes are full" in msg
+                        or "to insert from your inventory" in msg
+                    ):
+                        break
+                    raise Exception(
+                        f"Could not insert {name} into belt group at ({x}, {y})"
+                        f" ({items_inserted} of {quantity} inserted): {msg}"
+                    )
 
                 items_inserted += 1
                 last_response = response
@@ -91,7 +96,7 @@ class InsertItem(Tool):
         )
 
         if isinstance(response, str):
-            raise Exception(f"Could not insert: {response.split(':')[-1].strip()}")
+            raise Exception(f"Could not insert: {self.get_error_message(response)}")
 
         cleaned_response = self.clean_response(response)
         if isinstance(cleaned_response, dict):

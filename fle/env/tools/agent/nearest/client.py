@@ -33,6 +33,9 @@ class Nearest(Tool):
 
             response, time_elapsed = self.execute(self.player_index, name)
 
+            if isinstance(response, str):
+                raise LookupError(self.get_error_message(response))
+
             if response is None or response == {}:
                 if metaclass == ResourcePatch:
                     raise Exception(
@@ -54,7 +57,9 @@ class Nearest(Tool):
             position = Position(x=x, y=y)
 
             return position
+        except LookupError as e:
+            raise Exception(f"Could not find nearest {type[0]}: {e}") from None
         except TypeError:
             raise Exception(f"Could not find nearest {type[0]} on the surface")
         except Exception as e:
-            raise Exception(f"Could not find nearest {type[0]}", e)
+            raise Exception(f"Could not find nearest {type[0]}: {e}") from e

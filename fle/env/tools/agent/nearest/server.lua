@@ -41,7 +41,7 @@ storage.actions.nearest = function(player_index, resource)
                 end
             end
             if closest == nil then
-                error("\"Could not find an entity called "..resource.."\"")
+                error(string.format("\"No %s within 500 tiles (in x and y) of your position (%.1f, %.1f)\"", resource, position.x, position.y))
             end
             --return { x = position.x - closest.x, y = position.y - closest.y }
             return {x = closest.x, y = closest.y}
@@ -61,7 +61,7 @@ storage.actions.nearest = function(player_index, resource)
         end
 
         if closest == nil then
-            error("\"Could not find an entity called "..resource.."\"")
+            error(string.format("\"No %s within 500 tiles (in x and y) of your position (%.1f, %.1f)\"", resource, position.x, position.y))
         end
         -- game.print("Distance to "..resource.." is "..closest_distance)
         return {x= closest.x, y = closest.y}

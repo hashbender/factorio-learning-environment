@@ -43,7 +43,11 @@ class ExtractItem(Tool):
             else:
                 raise Exception(f"Could not extract {name} at ({x}, {y}): {msg}")
 
-        if not response or response < 1:
-            raise Exception("Could not extract.")
+        if not isinstance(response, (int, float)) or response < 1:
+            where = f" from {source_name}" if source_name else ""
+            raise Exception(
+                f"Could not extract {name}{where} at ({x}, {y}): the game returned"
+                f" {response!r} instead of an item count"
+            )
 
         return response

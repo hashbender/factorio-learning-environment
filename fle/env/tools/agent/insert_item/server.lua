@@ -4,30 +4,32 @@ local function is_module(item_name)
     return item_proto and item_proto.type == "module"
 end
 
--- Function to get inventory fullness information
-local function get_inventory_info(entity)
-    if entity.get_inventory then
-        -- Try common inventory types (Factorio 2.0: unified crafter_input for furnaces/assemblers)
-        local inv = entity.get_inventory(defines.inventory.chest) or          -- For chests
-                   entity.get_inventory(defines.inventory.crafter_input)      -- For furnaces, assemblers, rocket silos
-
-        if inv then
-            -- Get actual item count and inventory capacity
-            local item_count = 0
-            for i = 1, #inv do
-                local stack = inv[i]
-                if stack and stack.valid_for_read then
-                    item_count = item_count + stack.count
-                end
-            end
-
-            -- Calculate total capacity (slots * stack size)
-            local capacity = #inv * prototypes.item[inv[1].name or "iron-plate"].stack_size
-
-            return string.format("(%d/%d items)", item_count, capacity)
+-- How full the inventory is that the item would go into, e.g. "(input 100/100 items)"
+local function get_inventory_info(entity, item_name)
+    local inv, label
+    local is_fuel = prototypes.item[item_name] and prototypes.item[item_name].fuel_value > 0
+    if entity.type == "container" or entity.type == "logistic-container" then
+        inv, label = entity.get_inventory(defines.inventory.chest), "chest"
+    elseif entity.type == "lab" then
+        inv, label = entity.get_inventory(defines.inventory.lab_input), "input"
+    elseif entity.burner and is_fuel then
+        inv, label = entity.get_fuel_inventory(), "fuel"
+    elseif entity.type == "furnace" or entity.type == "assembling-machine" then
+        inv, label = entity.get_inventory(defines.inventory.crafter_input), "input"
+    end
+    if not inv then
+        return ""
+    end
+    local item_count, free_slots = 0, 0
+    for i = 1, #inv do
+        local stack = inv[i]
+        if stack.valid_for_read then
+            item_count = item_count + stack.count
+        else
+            free_slots = free_slots + 1
         end
     end
-    return ""
+    return string.format("(%s inventory: %d items, %d of %d slots free)", label, item_count, free_slots, #inv)
 end
 
 -- Durability of one item of a tool (e.g. a science pack), or nil for other items
@@ -88,6 +90,10 @@ storage.actions.insert_item = function(player_index, insert_item, count, x, y, t
     local position = {x=x, y=y}
     local surface = player.surface
 
+    if count <= 0 then
+        error("\"Invalid count " .. tostring(count) .. ": the quantity must be greater than 0\"")
+    end
+
     -- Check if player has enough items
     local item_count = player.get_item_count(insert_item)
     if item_count == 0 then
@@ -116,61 +122,72 @@ storage.actions.insert_item = function(player_index, insert_item, count, x, y, t
     --    return ""
     --end
 
-    -- Function to check if an item can be inserted into an entity
+    local function fmt_pos(p)
+        return string.format("(%s, %s)", p.x, p.y)
+    end
+
+    -- Can the item go into this entity? Returns ok, plus the reason when not.
     local function can_insert_item(entity, item_name)
+        local item_prototype = prototypes.item[item_name]
+        if not item_prototype then
+            return false, item_name .. " is not an item"
+        end
         if entity.type == "transport-belt" then
             -- All items that can be on ground can be on belts
-            local item_prototype = prototypes.item[item_name]
-            return item_prototype and not item_prototype.has_flag("only-in-cursor")
-
+            if item_prototype.has_flag("only-in-cursor") then
+                return false, item_name .. " cannot be put on a belt"
+            end
+            return true
         elseif entity.type == "lab" then
-            -- Check if the item is a science pack
-            local item_prototype = prototypes.item[item_name]
-            return item_prototype and item_prototype.type == "tool"
-
+            if item_prototype.type == "tool" then
+                return true
+            end
+            return false, "a lab takes only science packs"
         elseif entity.type == "assembling-machine" then
-            -- Check if it's a module first
             if is_module(item_name) then
                 local module_inv = entity.get_module_inventory()
-                return module_inv and not module_inv.is_full()
+                if not module_inv or #module_inv == 0 then
+                    return false, "it has no module slots"
+                end
+                if module_inv.is_full() then
+                    return false, "its module slots are full"
+                end
+                return true
             end
             local recipe = entity.get_recipe()
-            if recipe then
-               -- Check if the item is an ingredient or the result of the recipe
-                for _, ingredient in pairs(recipe.ingredients) do
-                    if ingredient.name == item_name then
-                        return true
-                    end
-                end
-                -- Check if the item is the result of the recipe
-                for _, product in pairs(recipe.products) do
-                    if product.name == item_name then
-                        return true
-                    end
-                end
-                return false
+            if not recipe then
+                return false, "it has no recipe set"
             end
+            for _, ingredient in pairs(recipe.ingredients) do
+                if ingredient.name == item_name then
+                    return true
+                end
+            end
+            for _, product in pairs(recipe.products) do
+                if product.name == item_name then
+                    return true
+                end
+            end
+            local names = {}
+            for _, ingredient in pairs(recipe.ingredients) do
+                table.insert(names, ingredient.name)
+            end
+            return false, item_name .. " is not an ingredient or product of its recipe " .. recipe.name ..
+                " (ingredients: " .. table.concat(names, ", ") .. ")"
         elseif entity.type == "furnace" then
-            -- Check if it's a fuel
-            if prototypes.item[item_name].fuel_value > 0 then
+            if item_prototype.fuel_value > 0 then
                 return true
             end
             -- Check furnace inventory for incompatible items (Factorio 2.0: crafter_input)
             local inventory = entity.get_inventory(defines.inventory.crafter_input)
             if inventory and not inventory.is_empty() then
-                local existing_item = nil
                 for i = 1, #inventory do
                     local stack = inventory[i]
-                    if stack.valid_for_read then
-                        existing_item = stack.name
-                        break
+                    if stack.valid_for_read and stack.name ~= item_name then
+                        return false, "it already contains " .. stack.name .. " in its input slot"
                     end
                 end
-                if existing_item and existing_item ~= item_name then
-                    error("\"furnace already contains " .. existing_item.." so cannot insert " .. item_name .."\"")
-                end
             end
-            -- Check if it's a valid ingredient for any furnace recipe
             for _, recipe in pairs(prototypes.recipe) do
                 if recipe.category == "smelting" then
                     for _, ingredient in pairs(recipe.ingredients) do
@@ -180,52 +197,56 @@ storage.actions.insert_item = function(player_index, insert_item, count, x, y, t
                     end
                 end
             end
-            return false
-            ---- Check if it's a fuel
-            --if prototypes.item[item_name].fuel_value > 0 then
-            --    return true
-            --end
-            ---- Check if it's a valid ingredient for any furnace recipe
-            --for _, recipe in pairs(prototypes.recipe) do
-            --    if recipe.category == "smelting" then
-            --        for _, ingredient in pairs(recipe.ingredients) do
-            --            if ingredient.name == item_name then
-            --                return true
-            --            end
-            --        end
-            --    end
-            --end
-            --return false
+            return false, item_name .. " is neither a fuel nor a smelting ingredient"
         elseif entity.burner then
-            -- Check if it's a fuel
-            return prototypes.item[item_name].fuel_value > 0
+            if item_prototype.fuel_value > 0 then
+                return true
+            end
+            return false, "it takes only fuel, and " .. item_name .. " is not a fuel"
         elseif entity.type == "container" or entity.type == "logistic-container" then
             return true  -- Containers can accept any item
         elseif entity.type == "beacon" then
-            -- Beacons only accept modules
-            if is_module(item_name) then
-                local module_inv = entity.get_module_inventory()
-                return module_inv and not module_inv.is_full()
+            if not is_module(item_name) then
+                return false, "a beacon takes only modules"
             end
-            return false
+            local module_inv = entity.get_module_inventory()
+            if module_inv and module_inv.is_full() then
+                return false, "its module slots are full"
+            end
+            return true
         end
-        -- Add more entity types as needed
+        if entity.get_max_inventory_index() == 0 and entity.type ~= "transport-belt" then
+            return false, "it has no inventory"
+        end
         return true
     end
 
-    -- Find the closest suitable building
+    -- Find the closest suitable building, and remember why the others were refused
+    local refused = {}
     for _, building in ipairs(buildings) do
-        if building.name ~= 'character' and can_insert_item(building, insert_item) then
-            local distance = ((position.x - building.position.x) ^ 2 + (position.y - building.position.y) ^ 2) ^ 0.5
-            if distance < closest_distance then
-                closest_distance = distance
-                closest_entity = building
+        if building.name ~= 'character' then
+            local ok, reason = can_insert_item(building, insert_item)
+            if ok then
+                local distance = ((position.x - building.position.x) ^ 2 + (position.y - building.position.y) ^ 2) ^ 0.5
+                if distance < closest_distance then
+                    closest_distance = distance
+                    closest_entity = building
+                end
+            elseif #refused < 3 then
+                table.insert(refused, building.name .. " at " .. fmt_pos(building.position) .. ": " .. (reason or "it does not accept " .. insert_item))
             end
         end
     end
 
     if closest_entity == nil then
-        error("\"Could not find a nearby entity that can accept " .. insert_item.."\"")
+        local where = fmt_pos(position)
+        if #refused > 0 then
+            error("\"Cannot insert " .. insert_item .. " into " .. table.concat(refused, "; ") .. "\"")
+        end
+        if target_name then
+            error("\"No " .. target_name .. " within 1 tile of " .. where .. "\"")
+        end
+        error("\"No entity within 1 tile of " .. where .. " to insert " .. insert_item .. " into\"")
     end
 
     -- Throw an error if the entity is out of the character's reach
@@ -336,17 +357,24 @@ storage.actions.insert_item = function(player_index, insert_item, count, x, y, t
         -- game.print("Successfully inserted " .. inserted .. " items.")
         return storage.utils.serialize_entity(closest_entity)
     else
-        local inventory_info = get_inventory_info(closest_entity)
+        local reason
+        if closest_entity.type == "transport-belt" then
+            reason = "both lanes are full at the belt's input end"
+        else
+            local inventory_info = get_inventory_info(closest_entity, insert_item)
+            if inventory_info ~= "" then
+                reason = "no room for " .. insert_item .. " " .. inventory_info
+            else
+                reason = "the game accepted 0 of them"
+            end
+        end
         local error_msg = string.format(
-            "\"Failed to insert %s into %s (type %s) at position %s. " ..
-            "Attempted to insert %d items. %s %s\"",
+            "\"Failed to insert %s into %s at %s (tried %d): %s\"",
             insert_item,
             closest_entity.name,
-            closest_entity.type,
-            serpent.line(closest_entity.position),
+            fmt_pos(closest_entity.position),
             insertable_count,
-            inventory_info ~= "" and "Inventory is full " .. inventory_info or "Entity might not accept this item or has no available space.",
-            inventory_info
+            reason
         )
         error(error_msg)
     end

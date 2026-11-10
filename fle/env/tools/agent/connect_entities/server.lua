@@ -537,13 +537,9 @@ local function place_at_position(player, connection_type, current_position, dir,
                 {x = placement_position.x + 1 / 2, y = placement_position.y + 1 / 2}
             }
 
-            -- Check for collision with other entities
-            local entities = player.surface.find_entities_filtered{area = target_area, force = player.force}
-            for _, entity in pairs(entities) do
-                -- game.print("1 "..entity.name)
-            end
-
-            error("Cannot connect due to placement blockage 1.")
+            -- Name what is in the way
+            local entities = player.surface.find_entities_filtered{area = target_area}
+            error(storage.utils.connect_blockage_message(connection_type, placement_position, entities))
         end
 
 
@@ -608,7 +604,7 @@ local function place_at_position(player, connection_type, current_position, dir,
         end
     end
     if not has_item then
-        error("You do not have the required item in their inventory.")
+        error("\"No " .. connection_type .. " in your inventory to place at (" .. placement_position.x .. ", " .. placement_position.y .. ")\"")
     end
 
     -- We can just teleport away here to avoid collision as we dont adhere by distance rules in connect_entities
@@ -639,13 +635,9 @@ local function place_at_position(player, connection_type, current_position, dir,
                 {x = placement_position.x + 1 / 2, y = placement_position.y + 1 / 2}
             }
 
-        -- Check for collision with other entities
-        local entities = player.surface.find_entities_filtered{area = target_area, force = player.force}
-        for _, entity in pairs(entities) do
-            -- game.print("1: "..entity.name)
-        end
-
-        error("Cannot connect due to placement blockage.")
+        -- Name what is in the way
+        local entities = player.surface.find_entities_filtered{area = target_area}
+        error(storage.utils.connect_blockage_message(connection_type, placement_position, entities))
     end
 
 
@@ -1142,6 +1134,25 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
         connected = is_connected,
         number_of_entities = counter_state.place_counter
     }
+end
+
+-- "Cannot place pipe at (x, y): blocked by stone-furnace, cliff" (or the tile, when no entity is there)
+storage.utils.connect_blockage_message = function(connection_type, position, entities)
+    local names = {}
+    for _, entity in pairs(entities or {}) do
+        local t = entity.valid and entity.type
+        if t and t ~= "character" and t ~= "resource" and t ~= "item-entity" and t ~= "corpse" and #names < 3 then
+            table.insert(names, entity.name)
+        end
+    end
+    local cause
+    if #names > 0 then
+        cause = "blocked by " .. table.concat(names, ", ")
+    else
+        local tile = game.surfaces[1].get_tile(position.x, position.y)
+        cause = "the tile there (" .. (tile and tile.valid and tile.name or "unknown") .. ") does not allow it"
+    end
+    return "\"Cannot connect: cannot place " .. connection_type .. " at (" .. position.x .. ", " .. position.y .. "): " .. cause .. "\""
 end
 
 storage.utils.normalise_path = function(original_path, start_position, end_position)
