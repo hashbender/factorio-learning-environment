@@ -721,6 +721,52 @@ local function table_contains(tbl, element)
     return false
 end
 
+-- The game's path for a wide search box weaves between trees and rocks; snapped
+-- to the tile grid, some tile of a long route then lands on a tree or rock and
+-- the connection fails with a placement blockage. Rewrite the path as a chain of
+-- adjacent tiles that follows the game's path and, at each step, takes whichever
+-- of the two grid moves toward the next path point is buildable. Nothing is
+-- removed from the map; if neither move is buildable the chain goes on and the
+-- placement check reports the blockage as before.
+local function buildable_tile_chain(surface, raw_path, entity_name)
+    if type(raw_path) ~= "table" or #raw_path < 2 then
+        return raw_path
+    end
+    local function tile(p)
+        return {x = math.floor(p.x) + 0.5, y = math.floor(p.y) + 0.5}
+    end
+    local function buildable(p)
+        return surface.can_place_entity{name = entity_name, position = p, force = "player"}
+    end
+    local current = tile(raw_path[1].position)
+    local chain = {{position = current}}
+    local guard = 0
+    for i = 2, #raw_path do
+        local target = tile(raw_path[i].position)
+        while (current.x ~= target.x or current.y ~= target.y) and guard < 20000 do
+            guard = guard + 1
+            local dx, dy = target.x - current.x, target.y - current.y
+            local step_x = dx ~= 0 and {x = current.x + (dx > 0 and 1 or -1), y = current.y} or nil
+            local step_y = dy ~= 0 and {x = current.x, y = current.y + (dy > 0 and 1 or -1)} or nil
+            local first, second = step_x, step_y
+            if math.abs(dy) > math.abs(dx) then
+                first, second = step_y, step_x
+            end
+            local next_tile
+            if first and buildable(first) then
+                next_tile = first
+            elseif second and buildable(second) then
+                next_tile = second
+            else
+                next_tile = first or second
+            end
+            chain[#chain + 1] = {position = next_tile}
+            current = next_tile
+        end
+    end
+    return chain
+end
+
 local function connect_entities(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, dry_run)
     local counter_state = {place_counter = 0}
     local player = storage.agent_characters[player_index]
@@ -733,7 +779,12 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
     local raw_path = storage.paths[path_handle]
 
     if not raw_path or type(raw_path) ~= "table" or #raw_path == 0 then
-        error("Invalid path: " .. serpent.line(path))
+        error("\"No path found\"")
+    end
+
+    -- Pipes: follow the game's path tile by tile, choosing buildable tiles
+    if (default_connect_types[connection_types[1]] or connection_types[1]) == "pipe" then
+        raw_path = buildable_tile_chain(player.surface, raw_path, "pipe")
     end
 
     local path = storage.utils.normalise_path(raw_path, start_position, end_position)

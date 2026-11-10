@@ -1,3 +1,4 @@
+import re
 from typing import Union, Optional, List, Dict, cast, Set
 
 import numpy
@@ -16,10 +17,12 @@ from fle.env import (
     OilRefinery,
     MultiFluidHandler,
 )
+from fle.env.entities import BoundingBox, ElectricityPole
 from fle.env import DirectionInternal
 from fle.env.game_types import Prototype
 from fle.env.tools.admin.clear_collision_boxes.client import ClearCollisionBoxes
 from fle.env.tools.admin.extend_collision_boxes.client import ExtendCollisionBoxes
+from fle.env.tools.admin.get_cliffs.client import GetCliffs
 from fle.env.tools.admin.get_path.client import GetPath
 from fle.env.tools.admin.request_path.client import RequestPath
 from fle.env.tools.agent.connect_entities.path_result import PathResult
@@ -46,6 +49,10 @@ from fle.env.tools import Tool
 from collections.abc import Set as AbstractSet
 
 
+# Prototype names only: nothing else is put into a Lua command
+_PROTOTYPE_NAME = re.compile(r"[a-z0-9-]{1,100}")
+
+
 class ConnectEntities(Tool):
     def __init__(self, connection, game_state):
         super().__init__(connection, game_state)
@@ -60,6 +67,7 @@ class ConnectEntities(Tool):
         self.pickup_entity = PickupEntity(self.connection, self.game_state)
         self.inspect_inventory = InspectInventory(self.connection, self.game_state)
         self.get_entities = GetEntities(self.connection, self.game_state)
+        self.get_cliffs = GetCliffs(self.connection, self.game_state)
         self.get_entity = GetEntity(self.connection, self.game_state)
         self._extend_collision_boxes = ExtendCollisionBoxes(
             self.connection, self.game_state
@@ -203,6 +211,35 @@ class ConnectEntities(Tool):
                 "number_of_entities_required": total_required_entities,
                 "number_of_entities_available": entities_available,
             }
+
+        poles = {
+            Prototype.SmallElectricPole,
+            Prototype.MediumElectricPole,
+            Prototype.BigElectricPole,
+        }
+        target = waypoints[-1]
+        if not set(connection_types) & poles:
+            # Nothing was built and no existing connection was found: a bare
+            # position comes back. Between two distinct points that is a failure.
+            if isinstance(connection, Position) and len(waypoints) >= 2:
+                start = self.get_position(waypoints[0])
+                end = self.get_position(target)
+                if abs(start[0] - end[0]) + abs(start[1] - end[1]) >= 1:
+                    raise Exception(
+                        f"Failed to connect {set([type.name for type in connection_types])} "
+                        f"from {waypoints[0]} to {target}. No path found"
+                        f"{self._cliffs_between(Position(x=start[0], y=start[1]), Position(x=end[0], y=end[1]))}"
+                    )
+        elif (
+            isinstance(target, Entity)
+            and not isinstance(target, (EntityGroup, ElectricityPole))
+            and self._is_unpowered(target)
+        ):
+            # A pole connection to a machine must leave it on an electric network
+            raise Exception(
+                f"Poles were placed, but {target.name} at ({target.position.x}, "
+                f"{target.position.y}) is not connected to an electric network"
+            )
         return connection
 
     def _validate_connection_types(self, connection_types: Set[Prototype]):
@@ -382,7 +419,63 @@ class ConnectEntities(Tool):
         raise Exception(
             f"Failed to connect {set([type.name for type in connection_types])} from {source_error_message_addition} to {target_error_message_addition}. "
             f"{self.get_error_message(exception_message)}"
+            f"{self._cliffs_between(source_pos, target_pos)}"
         )
+
+    def _cliffs_between(self, source_pos: Position, target_pos: Position) -> str:
+        """Cliffs inside the box spanned by two positions (with a 4-tile margin),
+        as a sentence for an error message, or "" when there are none."""
+        margin = 4
+        try:
+            cliffs = self.get_cliffs(
+                position=source_pos,
+                limit=10,
+                area=BoundingBox(
+                    left_top=Position(
+                        x=min(source_pos.x, target_pos.x) - margin,
+                        y=min(source_pos.y, target_pos.y) - margin,
+                    ),
+                    right_bottom=Position(
+                        x=max(source_pos.x, target_pos.x) + margin,
+                        y=max(source_pos.y, target_pos.y) + margin,
+                    ),
+                    left_bottom=Position(
+                        x=min(source_pos.x, target_pos.x) - margin,
+                        y=max(source_pos.y, target_pos.y) + margin,
+                    ),
+                    right_top=Position(
+                        x=max(source_pos.x, target_pos.x) + margin,
+                        y=min(source_pos.y, target_pos.y) - margin,
+                    ),
+                ),
+            )
+        except Exception:
+            return ""
+        if not cliffs:
+            return ""
+
+        def number(v) -> str:
+            f = float(v)
+            return str(int(f)) if f == int(f) else f"{f:g}"
+
+        points = ", ".join(f"({number(c.x)}, {number(c.y)})" for c in cliffs)
+        return f" Cliffs in the area between these points: {points}"
+
+    def _is_unpowered(self, entity: Entity) -> bool:
+        """True if the entity runs on electricity and is not connected to an
+        electric network (burner and unpowered entities are never 'unpowered')."""
+        name = getattr(entity, "name", None)
+        if not isinstance(name, str) or not _PROTOTYPE_NAME.fullmatch(name):
+            return False
+        x, y = float(entity.position.x), float(entity.position.y)
+        response = self.connection.rcon_client.send_command(
+            f"/sc local e = game.surfaces[1].find_entities_filtered{{position = {{{x}, {y}}}, "
+            f"name = '{name}', limit = 1}}[1]; "
+            "if not e or not e.prototype.electric_energy_source_prototype then rcon.print('n/a') "
+            "else local ok, v = pcall(function() return e.is_connected_to_electric_network() end); "
+            "rcon.print(ok and (v and 'yes' or 'no') or 'n/a') end"
+        )
+        return (response or "").strip() == "no"
 
     def _refresh_entity(self, entity: Entity) -> Entity:
         # we dont need to update if its a beltgroup, polegroup or pipegroup
@@ -452,6 +545,20 @@ class ConnectEntities(Tool):
 
         return None
 
+    def _wait_for_path(self, path_handle: int) -> str:
+        """Wait for the game's answer to a path request: "ready", "not_found",
+        "busy" or "error" (e.g. still pending when get_path gave up)."""
+        try:
+            self.get_path(path_handle)
+            return "ready"
+        except Exception as e:
+            message = str(e)
+            if "busy" in message:
+                return "busy"
+            if "not_found" in message or "invalid_request" in message:
+                return "not_found"
+            return "error"
+
     def _attempt_path_finding(
         self,
         source_pos: Position,
@@ -463,25 +570,30 @@ class ConnectEntities(Tool):
         allow_paths_through_own: bool = False,
     ) -> PathResult:
         """Attempt to find a path between two positions"""
-        entity_sizes = [1.5, 1, 0.5, 0.25]  # Ordered from largest to smallest
+        # Search box sizes, in order: the usual sizes first, then wider boxes,
+        # whose paths keep clear of trees and rocks, before the smallest ones
+        entity_sizes = [1.5, 1, 2.5, 2, 0.5, 0.25]
 
+        result = None
         for size in entity_sizes:
-            path_handle = self.request_path(
-                finish=target_pos,
-                start=source_pos,
-                allow_paths_through_own_entities=allow_paths_through_own,
-                radius=pathing_radius,
-                entity_size=size,
-            )
-
             # The path is computed asynchronously by the game, a little each tick, so
             # a fixed wall-clock sleep is too short at low game speeds (at 1x, 50 ms
-            # is ~3 ticks). Wait for the request to finish; failures (not_found, busy,
-            # timeout) are reported by the server call below, as before.
-            try:
-                self.get_path(path_handle)
-            except Exception:
-                pass
+            # is ~3 ticks). Wait for the answer, and ask again if the pathfinder is busy.
+            for _ in range(3):
+                path_handle = self.request_path(
+                    finish=target_pos,
+                    start=source_pos,
+                    allow_paths_through_own_entities=allow_paths_through_own,
+                    radius=pathing_radius,
+                    entity_size=size,
+                )
+                state = self._wait_for_path(path_handle)
+                if state != "busy":
+                    break
+
+            if state == "not_found":
+                # The game found no way through for this box size: try the next one
+                continue
 
             response, _ = self.execute(
                 self.player_index,
@@ -499,6 +611,8 @@ class ConnectEntities(Tool):
             if result.is_success:
                 return result
 
+        if result is None:
+            raise Exception("No path found")
         return result  # Return last failed result if all attempts fail
 
     def _create_connection(
