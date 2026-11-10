@@ -87,6 +87,58 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
         return n
     end
 
+    -- Items on a belt's lanes, e.g. "L iron-ore:3, R coal:1" (or "nothing")
+    local function lanes_of(belt)
+        local parts = {}
+        for line = 1, belt.get_max_transport_line_index() do
+            local label = (line % 2 == 1) and "L" or "R"
+            for name, n in pairs(storage.utils.get_contents_compat(belt.get_transport_line(line))) do
+                table.insert(parts, label .. " " .. name .. ":" .. n)
+            end
+        end
+        return #parts > 0 and table.concat(parts, ", ") or "nothing"
+    end
+
+    -- Take up to `count` items off a belt's lanes into the character (only what fits)
+    local function take_from_belt(belt)
+        local where = belt.name .. " at " .. fmt_pos(belt.position)
+        local on_belt = belt_count(belt, extract_item)
+        if on_belt == 0 then
+            error("\"" .. where .. " has no " .. extract_item .. " on its lanes (it carries " .. lanes_of(belt) .. ")\"")
+        end
+        if not player.can_reach_entity(belt) then
+            error("\"" .. where .. " is too far away from your position of (" .. player.position.x .. "," ..
+                player.position.y .. "), move closer.\"")
+        end
+        local room = on_belt
+        local ok, insertable = pcall(function()
+            return player.get_main_inventory().get_insertable_count(extract_item)
+        end)
+        if ok and type(insertable) == "number" then
+            room = insertable
+        end
+        local want = math.min(count, on_belt, room)
+        if want <= 0 then
+            error("\"Failed to extract " .. extract_item .. " from " .. where .. ": your inventory has no room for it\"")
+        end
+        local taken = 0
+        for line = 1, belt.get_max_transport_line_index() do
+            if taken >= want then
+                break
+            end
+            taken = taken + belt.get_transport_line(line).remove_item({name = extract_item, count = want - taken})
+        end
+        if taken == 0 then
+            error("\"Failed to extract " .. extract_item .. " from " .. where .. "\"")
+        end
+        local inserted = player.insert({name = extract_item, count = taken})
+        if inserted < taken then
+            -- should not happen after the room check; never lose items
+            belt.surface.spill_item_stack{position = player.position, stack = {name = extract_item, count = taken - inserted}}
+        end
+        return inserted
+    end
+
     -- First validate the request
     if count <= 0 then
         error("\"Invalid count " .. tostring(count) .. ": the quantity must be greater than 0\"")
@@ -122,12 +174,18 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
     local closest_distance = math.huge
     local closest_entity = nil
     local belt_with_item = nil
+    local belt_distance = math.huge
 
     for _, building in ipairs(buildings) do
         if building.name ~= 'character' then
             if belt_types[building.type] then
-                if not belt_with_item and belt_count(building, extract_item) > 0 then
-                    belt_with_item = building
+                if belt_count(building, extract_item) > 0 then
+                    local distance = ((position.x - building.position.x) ^ 2 +
+                                    (position.y - building.position.y) ^ 2) ^ 0.5
+                    if distance < belt_distance then
+                        belt_distance = distance
+                        belt_with_item = building
+                    end
                 end
             else
                 local item_count = building.get_item_count(extract_item)
@@ -153,11 +211,9 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
     end
 
     if not closest_entity then
+        -- No inventory holds it: take it off a belt's lanes, as a player can
         if exact and belt_types[exact.type] or (not exact and belt_with_item) then
-            local belt = exact or belt_with_item
-            error("\"extract_item takes items from entity inventories; " .. belt.name .. " at " .. fmt_pos(belt.position) ..
-                " has no inventory (" .. belt_count(belt, extract_item) .. " " .. extract_item ..
-                " on its lanes; items on belts are not extracted)\"")
+            return take_from_belt(exact or belt_with_item)
         end
         if exact then
             error("\"" .. exact.name .. " at " .. fmt_pos(exact.position) .. " has no " .. extract_item ..

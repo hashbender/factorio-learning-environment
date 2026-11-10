@@ -23,7 +23,7 @@ The function returns the number of items successfully extracted. The extracted i
 **Source Handling**
 
 - With an Entity, items come from that entity (if it is gone, from the nearest entity of the same name within 10 tiles that holds the item); with a Position, from the nearest entity within 10 tiles that holds the item
-- Items on belts are not in an inventory and are not extracted
+- Items on a belt are taken off its lanes, as a player picks them up (only when no inventory entity in range holds the item, for a Position; always, for a belt entity); the belt must be within reach
 
 **Quantity Handling**
 
