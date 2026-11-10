@@ -1621,13 +1621,48 @@ class TreeObservationFormatter(BasicObservationFormatter):
     ) -> Dict[str, str]:
         """Entity-specific compact views (belt groups, inserters). Facts only."""
         try:
+            neighbours = entity.get("neighbours")
+            if (
+                isinstance(neighbours, list)
+                and neighbours
+                and "neighbours" in formatted
+            ):
+                formatted = dict(formatted)
+                formatted["neighbours"] = cls._compact_neighbours(neighbours)
             if entity_name == "belt-group" or (
                 "belts" in entity and isinstance(entity.get("belts"), list)
             ):
                 return cls._compact_belt_group(entity, formatted)
+            if str(entity_name).endswith("inserter") and "drop_position" in formatted:
+                return cls._compact_inserter(entity, formatted)
         except Exception:
             return formatted
         return formatted
+
+    NEIGHBOURS_CAP = 4
+
+    @classmethod
+    def _compact_neighbours(cls, neighbours: List[Any]) -> str:
+        """[name (x, y), ...] instead of each neighbour's full repr."""
+        parts = []
+        for n in neighbours:
+            name = cls._attr(n, "name", "?")
+            parts.append(f"{name} {cls._pos_str(cls._attr(n, 'position'))}")
+        return "[" + cls._capped(parts, cls.NEIGHBOURS_CAP) + "]"
+
+    @classmethod
+    def _compact_inserter(
+        cls, entity: Dict[str, Any], formatted: Dict[str, str]
+    ) -> Dict[str, str]:
+        """Inserter: what is at its pickup and drop positions, and what it holds."""
+        out = dict(formatted)
+        for key in ("pickup_target", "drop_target"):
+            out[key] = cls._attr(entity, key) or "none"
+        held = cls._attr(entity, "held_item")
+        out.pop("held_item", None)
+        name = cls._attr(held, "name") if held else None
+        out["held"] = f"{name}:{cls._attr(held, 'count', 1)}" if name else "empty"
+        return out
 
     @classmethod
     def _compact_belt_group(

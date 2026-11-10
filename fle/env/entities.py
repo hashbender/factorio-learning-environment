@@ -692,6 +692,11 @@ class Inserter(StaticEntity, Electric):
 
     pickup_position: Optional[Position] = None
     drop_position: Position
+    # Entity names at the pickup / drop positions (None: ground or nothing usable)
+    pickup_target: Optional[str] = None
+    drop_target: Optional[str] = None
+    # The stack in the inserter's hand, e.g. {"name": "iron-plate", "count": 1}
+    held_item: Optional[Dict[str, Any]] = None
     _width: float = 1
     _height: float = 1
 
