@@ -46,6 +46,7 @@ class SchemaGenerator:
             # Clean up signature
             localized_signature = (
                 call_info.signature.replace("self, ", "")
+                .replace("(self)", "()")
                 .replace("entities.", "")
                 .replace("instance.", "")
                 .replace("game_types.", "")
