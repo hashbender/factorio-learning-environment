@@ -431,6 +431,17 @@ end
 
 
 
+-- A dry run places nothing; it records what would be placed and where
+local function record_planned(counter_state, connection_type, position, dir)
+    if not counter_state.planned then counter_state.planned = {} end
+    table.insert(counter_state.planned, {
+        name = "\"" .. connection_type .. "\"",
+        x = position.x,
+        y = position.y,
+        direction = dir or 0
+    })
+end
+
 local function place_at_position(player, connection_type, current_position, dir, serialized_entities, dry_run, counter_state, is_underground_exit)
 
     local is_electric_pole = wire_reach[connection_type] ~= nil
@@ -557,6 +568,7 @@ local function place_at_position(player, connection_type, current_position, dir,
         
         elseif can_place and dry_run then
             counter_state.place_counter = counter_state.place_counter + 1
+            record_planned(counter_state, connection_type, placement_position, dir)
             return nil
 
         else
@@ -662,6 +674,7 @@ local function place_at_position(player, connection_type, current_position, dir,
     
     elseif can_place and dry_run then
         counter_state.place_counter = counter_state.place_counter + 1
+        record_planned(counter_state, connection_type, placement_position, dir)
         return nil
 
     else
@@ -812,9 +825,11 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
     local is_electric_pole = wire_reach[default_connection_type] ~= nil
 
 
-    for i = 1, #path-1, step_size do
-        storage.elapsed_ticks = storage.elapsed_ticks + storage.utils.calculate_movement_ticks(player, last_position, path[i].position)
-        last_position = path[i].position
+    if not storage.connect_dry_run_only then
+        for i = 1, #path-1, step_size do
+            storage.elapsed_ticks = storage.elapsed_ticks + storage.utils.calculate_movement_ticks(player, last_position, path[i].position)
+            last_position = path[i].position
+        end
     end
 
     local serialized_entities = {}
@@ -851,7 +866,8 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
         return {
           entities = serialized_entities,
           connected = true,
-          number_of_entities = counter_state.place_counter
+          number_of_entities = counter_state.place_counter,
+          planned = counter_state.planned
         }
     end
 
@@ -991,8 +1007,19 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
                 -- Update source belt direction if needed
                 local source_belt = entities[1]
                 if source_belt and source_belt.valid and source_belt.direction ~= initial_dir then
-                    source_belt.direction = initial_dir
-                    table.insert(serialized_entities, storage.utils.serialize_entity(source_belt))
+                    if dry_run then
+                        -- a dry run turns nothing; it reports the belt the real call would turn
+                        counter_state.would_turn = {
+                            name = "\"" .. source_belt.name .. "\"",
+                            x = source_belt.position.x,
+                            y = source_belt.position.y,
+                            from = source_belt.direction,
+                            to = initial_dir
+                        }
+                    else
+                        source_belt.direction = initial_dir
+                        table.insert(serialized_entities, storage.utils.serialize_entity(source_belt))
+                    end
                 end
             end
         end
@@ -1132,7 +1159,9 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
     return {
         entities = serialized_entities,
         connected = is_connected,
-        number_of_entities = counter_state.place_counter
+        number_of_entities = counter_state.place_counter,
+        planned = counter_state.planned,
+        would_turn = counter_state.would_turn
     }
 end
 
@@ -1731,6 +1760,20 @@ storage.actions.connect_entities = function(player_index, source_x, source_y, ta
         -- game.print(item)
         table.insert(connection_types, item)
     end
+    if dry_run then
+        -- A dry run the caller asked for: nothing is placed, no walking time is
+        -- counted, and the character (which the checks step aside) is put back
+        -- where it was, also when the route fails.
+        local player = storage.agent_characters[player_index]
+        local home = player and player.valid and {x = player.position.x, y = player.position.y}
+        storage.connect_dry_run_only = true
+        local ok, answer = pcall(connect_entities_with_validation, player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, true)
+        storage.connect_dry_run_only = nil
+        if home and player.valid then player.teleport(home) end
+        if not ok then error(answer, 0) end
+        return answer
+    end
+
     --First do a dry run
     local result = connect_entities_with_validation(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, true)
     -- then do an actual run if dry run is false

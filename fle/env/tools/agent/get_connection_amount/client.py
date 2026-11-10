@@ -29,4 +29,6 @@ class GetConnectionAmount(Tool):
         connect_output = self.connect_entities(
             source, target, connection_type, dry_run=True
         )
+        if not connect_output.get("route_found", True):
+            raise Exception(connect_output.get("error") or "No route found")
         return connect_output["number_of_entities_required"]

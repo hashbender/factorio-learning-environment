@@ -37,6 +37,7 @@ from fle.env.tools.agent.connect_entities.resolvers.power_connection_resolver im
 from fle.env.tools.agent.connect_entities.resolvers.transport_connection_resolver import (
     TransportConnectionResolver,
 )
+from fle.env.tools.agent.connect_entities import dry_run as dry_run_result
 from fle.env.tools.agent.connect_entities.groupable_entities import (
     _deduplicate_entities,
     agglomerate_groupable_entities,
@@ -132,9 +133,9 @@ class ConnectEntities(Tool):
         connect_entities(*waypoints, connection_type=connection_type).
         :param waypoints: Two or more Positions, Entities or EntityGroups to connect
         :param connection_type: The Prototype to connect with, or a set of Prototypes of one kind, e.g. {Prototype.Pipe, Prototype.UndergroundPipe}
-        :param dry_run: If True, place nothing and return the number of entities required and available
+        :param dry_run: If True, build nothing and return a dict saying whether a route exists (route_found), what would be placed and where (entities, required), what you hold (in_inventory, missing), or the error and blocked position (error, blocked_at). It never raises for a route that fails, takes no game time and leaves you where you are.
         :param allow_belt_changes: Belts only. If False (default), belts that are already on the map keep their direction, type and position; a route that would change one fails, naming it, and nothing is built. If True, the end belt of an existing line may be turned to face the new belts.
-        :return: The resulting entity group (e.g. a BeltGroup, PipeGroup or ElectricityGroup)
+        :return: The resulting entity group (e.g. a BeltGroup, PipeGroup or ElectricityGroup); with dry_run=True, the dry-run dict
         """
         args = waypoints
         if connection_type is not None:
@@ -205,8 +206,7 @@ class ConnectEntities(Tool):
         # Belts already on the map are recorded so the route can be checked against them
         self._protected_belts = None
         if (
-            not dry_run
-            and not kwargs.get("allow_belt_changes", False)
+            not kwargs.get("allow_belt_changes", False)
             and connection_types
             and self._get_connection_type(next(iter(connection_types)))
             == ConnectionType.TRANSPORT
@@ -216,7 +216,14 @@ class ConnectEntities(Tool):
         # this is a bit hacky and we should rethink how to do dry runs
         # right now the type of the connection output changes if its a dry run
         if dry_run:
-            total_required_entities = 0
+            try:
+                return self._dry_run(
+                    waypoints,
+                    connection_types,
+                    allow_belt_changes=kwargs.get("allow_belt_changes", False),
+                )
+            finally:
+                self._protected_belts = None
         try:
             for _, target in zip(waypoints[:-1], waypoints[1:]):
                 connection = self._connect_pair_of_waypoints(
@@ -225,9 +232,6 @@ class ConnectEntities(Tool):
                     connection_types=connection_types,
                     dry_run=dry_run,
                 )
-                if dry_run:
-                    total_required_entities += connection["number_of_entities_required"]
-                    entities_available = connection["number_of_entities_available"]
                 self._check_protected_belts()
         except Exception:
             # a failed route must not leave an existing belt changed either
@@ -250,12 +254,6 @@ class ConnectEntities(Tool):
                     ticks_added / 60 / game_speed if game_speed > 0 else 0
                 )
                 # sleep(real_world_sleep)
-
-        if dry_run:
-            return {
-                "number_of_entities_required": total_required_entities,
-                "number_of_entities_available": entities_available,
-            }
 
         poles = {
             Prototype.SmallElectricPole,
@@ -301,6 +299,58 @@ class ConnectEntities(Tool):
                 f"{target.position.y}) is not connected to an electric network"
             )
         return connection
+
+    def _dry_run(self, waypoints, connection_types, allow_belt_changes=False):
+        """connect_entities(..., dry_run=True): build nothing, report the route.
+
+        Each leg between two waypoints is checked on the map as it is now. A leg
+        that fails does not raise: the error the real call would raise is returned,
+        with the position it names."""
+        entities: List[dict] = []
+        belt_changes: List[str] = []
+        available = 0
+        try:
+            inventory = self.inspect_inventory()
+            for source, target in zip(waypoints[:-1], waypoints[1:]):
+                leg = self._connect_pair_of_waypoints(
+                    source,
+                    target,
+                    connection_types=connection_types,
+                    dry_run=True,
+                )
+                if not isinstance(leg, dict):
+                    continue  # this leg is already connected: nothing to place
+                available = leg.get("number_of_entities_available", available)
+                entities.extend(
+                    dry_run_result.planned_entities(leg.get("planned") or [])
+                )
+                turn = leg.get("would_turn")
+                if turn:
+                    belt_changes.append(
+                        f"{turn.get('name')} at ({turn.get('x')}, {turn.get('y')}) facing "
+                        f"{belt_guard.direction_name(int(turn.get('from', 0)))} would be turned "
+                        f"to face {belt_guard.direction_name(int(turn.get('to', 0)))}"
+                    )
+        except Exception as e:
+            return dry_run_result.failure(str(e), available)
+        if belt_changes and not allow_belt_changes:
+            return dry_run_result.failure(
+                f"This connection would change existing belts: {'; '.join(belt_changes)}. "
+                "Existing belts are only changed when allow_belt_changes=True is passed.",
+                available,
+            )
+        held = {}
+        for e in entities:
+            if e["name"] not in held:
+                held[e["name"]] = self._inventory_count(inventory, e["name"])
+        return dry_run_result.success(entities, held, available, belt_changes)
+
+    @staticmethod
+    def _inventory_count(inventory, name: str) -> int:
+        try:
+            return int(inventory.get(name, 0) or 0)
+        except Exception:
+            return 0
 
     def _snapshot_belts(self, waypoints) -> Optional[Dict]:
         positions = []
@@ -958,6 +1008,8 @@ class ConnectEntities(Tool):
             return {
                 "number_of_entities_required": result.required_entities,
                 "number_of_entities_available": num_available,
+                "planned": result.planned,
+                "would_turn": result.would_turn,
             }
 
         groupable_entities, path = self._get_groupable_entities(

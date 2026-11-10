@@ -14,3 +14,17 @@ class PathResult:
     @property
     def required_entities(self) -> int:
         return self.raw_response.get("number_of_entities", 0) if self.is_success else 0
+
+    @property
+    def planned(self) -> list:
+        """Dry run: what would be placed, as {name, x, y, direction} in route order."""
+        planned = self.raw_response.get("planned") if self.is_success else None
+        if isinstance(planned, dict):
+            return [planned[k] for k in sorted(planned, key=lambda k: int(k))]
+        return list(planned or [])
+
+    @property
+    def would_turn(self) -> Union[Dict, None]:
+        """Dry run: the existing belt the real call would turn, if any."""
+        turn = self.raw_response.get("would_turn") if self.is_success else None
+        return turn if isinstance(turn, dict) and turn else None

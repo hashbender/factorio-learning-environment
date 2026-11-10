@@ -24,33 +24,26 @@ SERVER_LUA = (
 STUB_LUA = """
 defines = {direction = {north = 0, east = 4, south = 8, west = 12}}
 prototypes = {entity = {["steam-engine"] = {
-    type = "generator",
+    type = "generator", tile_width = 3, tile_height = 5,
     collision_box = {left_top = {x = -1.5, y = -2.5}, right_bottom = {x = 1.5, y = 2.5}}}}}
-calls = {placed = {}, areas = {}}
-local surface = {
-    find_entities_filtered = function(filter)
-        table.insert(calls.areas, filter.area)
-        return {}
-    end,
-    can_place_entity = function(params)
-        table.insert(calls.placed, params.direction)
-        return true
-    end,
-}
+calls = {placed = {}}
+local surface = {}
 local player = {
-    position = {x = 0, y = 0}, reach_distance = 10, surface = surface, force = "player",
+    valid = true,
+    position = {x = 20, y = 20}, reach_distance = 100, surface = surface,
+    force = {is_chunk_charted = function() return true end},
     get_item_count = function() return 1 end,
     teleport = function() end,
 }
 storage = {actions = {}, agent_characters = {player}, utils = {
     -- place_entity's mapping; identity is enough to see which direction arrives
     get_entity_direction = function(entity, direction) return direction end,
-    format_inventory_for_error = function() return "" end,
+    ensure_valid_character = function() return player end,
+    can_place_entity = function(p, entity, position, direction)
+        table.insert(calls.placed, direction)
+        return true
+    end,
 }}
-storage.utils.avoid_entity = function(player_index, entity, position, direction)
-    return surface.can_place_entity{name = entity, position = position,
-        direction = storage.utils.get_entity_direction(entity, direction)}
-end
 """
 
 
@@ -58,14 +51,14 @@ def _run(direction):
     lua = lupa.LuaRuntime()
     lua.execute(STUB_LUA)
     lua.execute(SERVER_LUA.read_text())
-    assert lua.eval("storage.actions.can_place_entity")(
+    result = lua.eval("storage.actions.can_place_entity")(
         1, "steam-engine", direction, 0, 0
     )
+    assert result.fits and result.can_place
     calls = lua.eval("calls")
     placed = [calls.placed[i] for i in range(1, len(calls.placed) + 1)]
-    area = calls.areas[1]
-    size = (area[2].x - area[1].x, area[2].y - area[1].y)
-    return placed, size
+    f = result.footprint
+    return placed, (f.right - f.left + 1, f.bottom - f.top + 1)
 
 
 @pytest.mark.parametrize(

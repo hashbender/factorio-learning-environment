@@ -721,6 +721,60 @@ class Inserter(StaticEntity, Electric):
     _height: float = 1
 
 
+class PlacementBlocker(BaseModel):
+    """One thing in the way of a placement (can_place_entity): an entity, at its
+    position, or a tile, at the tile's x and y."""
+
+    kind: str  # "entity" or "tile"
+    name: str
+    position: Position
+
+    def __repr__(self) -> str:
+        return f"{self.name} at ({self.position.x}, {self.position.y})"
+
+    __str__ = __repr__
+
+
+class PlacementCheck(BaseModel):
+    """The game's answer to "can this entity be built here?" (can_place_entity).
+    True in an `if` exactly when can_place is True.
+
+    fits: the game's build check for the entity at `position` facing `direction`.
+    reason / blocked_by: why not, when it does not fit (blocked_count: how many
+    entities and tiles are in the way; blocked_by lists up to five of them).
+    in_reach, in_inventory: what place_entity also needs.
+    can_place: fits, in reach and in the inventory, so place_entity would build it now."""
+
+    entity: str
+    position: Position
+    direction: Optional[Direction] = None
+    can_place: bool
+    fits: bool
+    reason: Optional[str] = None
+    blocked_by: List[PlacementBlocker] = []
+    blocked_count: int = 0
+    in_reach: bool = True
+    distance: Optional[float] = None
+    reach: Optional[float] = None
+    in_inventory: int = 0
+
+    def __bool__(self) -> bool:
+        return self.can_place
+
+    def __repr__(self) -> str:
+        direction = f"direction={self.direction.name}, " if self.direction else ""
+        reason = f", reason={self.reason!r}" if self.reason else ""
+        blocked = f", blocked_by={self.blocked_by!r}" if self.blocked_by else ""
+        return (
+            f"PlacementCheck(can_place={self.can_place}, entity={self.entity}, "
+            f"position=({self.position.x}, {self.position.y}), {direction}"
+            f"fits={self.fits}{reason}{blocked}, in_reach={self.in_reach}, "
+            f"in_inventory={self.in_inventory})"
+        )
+
+    __str__ = __repr__
+
+
 class InserterPreview(BaseModel):
     """What an inserter would take from and drop into if placed at `position`
     facing `direction` (preview_inserter). pickup_target / drop_target: the

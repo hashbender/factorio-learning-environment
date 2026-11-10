@@ -208,3 +208,41 @@ Common issues and solutions:
 - Handle group merging properly
 - Track network IDs
 - Clean up disconnected groups
+
+## Dry run
+
+`connect_entities(..., dry_run=True)` asks whether the connection can be built, without building it. It takes the same arguments as the real call and uses the same route search and the same build check for every placement.
+
+A dry run places nothing, turns nothing, uses no items, takes no game time and leaves you where you are. It needs none of the connecting items in your inventory. It does not raise when the route fails: the failure is in the result.
+
+```python
+plan = connect_entities(Position(x=3.5, y=1.5), Position(x=3.5, y=6.5), Prototype.TransportBelt, dry_run=True)
+print(plan)
+# ConnectDryRun(route_found=True, required={'transport-belt': 6}, in_inventory={'transport-belt': 4}, missing={'transport-belt': 2}, entities=[transport-belt at (3.5, 1.5) DOWN, transport-belt at (3.5, 2.5) DOWN, ...])
+```
+
+The result is a dict:
+
+- `route_found`: True when the game found a route and every placement on it passed the build check
+- `entities`: what would be placed, in route order, each a dict with `name`, `position` and `direction` (None for entities without one)
+- `required`: the count of each item the route places, by name
+- `in_inventory`: how many of each of those you hold now
+- `missing`: the items you are short of, by name (empty when you hold enough); `enough_in_inventory` is True when it is empty
+- `belt_changes`: belts already on the map that the route would turn (only possible with `allow_belt_changes=True`)
+- `error`: when `route_found` is False, the error the real call would raise
+- `blocked_at`: the position that error names as blocked, when it names one, else None
+- `number_of_entities_required`, `number_of_entities_available`: the total count to place (None when no route was found), and how many of the connecting item you hold
+
+```python
+plan = connect_entities(Position(x=3.5, y=1.5), Position(x=3.5, y=6.5), Prototype.Pipe, dry_run=True)
+print(plan)
+# ConnectDryRun(route_found=False, blocked_at=(3.5, 4.5), error='Failed to connect {\'Pipe\'} from x=3.5 y=1.5 to x=3.5 y=6.5. Cannot connect: cannot place pipe at (3.5, 4.5): blocked by stone-furnace')
+```
+
+What a dry run does and does not cover:
+
+- The route is the one found on the map as it is now, with the items you hold now. With underground belts or pipes in the connection types, the real call uses as many underground sections as your inventory allows, and so does the dry run.
+- With several waypoints, each leg is checked separately on the map as it is now.
+- With electric poles, `entities` lists a pole at each step of the route that is not already covered; the real call stops placing poles once the target is connected and can add one pole at the target, so its count can differ.
+- With belts, the real call refuses a route that would change a belt already on the map unless `allow_belt_changes=True`. The dry run reports a belt at the start of the route that would be turned; other changes to existing belts are only found by the real call, which then builds nothing.
+- The real call has no reach rule (it walks the route), and neither has the dry run.
