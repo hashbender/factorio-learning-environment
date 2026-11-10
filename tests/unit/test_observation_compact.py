@@ -238,3 +238,43 @@ def test_positions_diagonal_staircase():
     text = positions_text(stair + [(30.5, 0.5)])
     assert text == "(30.5, 0.5) (5.5, 8.5)..(10.5, 3.5) step (1, -1)"
     assert sorted(_points(text)) == sorted(stair + [(30.5, 0.5)])
+
+
+def test_status_detail_survives_value_summaries():
+    """The game's reason stays with each entity's position when values that vary
+    are summarised (SUMMARISE_VARYING); one level further (KEY_VALUES_ONLY) it is
+    named as not listed, like the other differing values."""
+    from fle.env.gym_env.entity_compact import (
+        KEY_VALUES_ONLY,
+        SUMMARISE_VARYING,
+        render_type,
+    )
+
+    machines = [
+        {
+            "name": "assembling-machine-1",
+            "position": f"({i * 3 + 0.5}, 9.5)",
+            "recipe": "name='iron-gear-wheel'",
+            "status": "ITEM_INGREDIENT_SHORTAGE",
+            "status_detail": f"missing iron-plate ({i} of 2 per craft)",
+            "assembling_machine_input": f"[iron-plate:{i}]",
+        }
+        for i in range(6)
+    ]
+    text = render_type("assembling-machine-1", machines, SUMMARISE_VARYING)
+    assert "status_detail=varies" not in text
+    for i in range(6):
+        line = next(
+            ln
+            for ln in text.splitlines()
+            if f"missing iron-plate ({i} of 2 per craft)" in ln
+        )
+        assert line.endswith(f"at ({i * 3 + 0.5:g}, 9.5)")
+    # a value outside KEEP_KEYS and UNSUMMARISED_KEYS is still summarised
+    assert "assembling_machine_input=varies" in text
+
+    text = render_type("assembling-machine-1", machines, KEY_VALUES_ONLY)
+    assert "missing iron-plate" not in text
+    assert text.splitlines()[-1] == (
+        "  (not listed, they differ: assembling_machine_input, status_detail)"
+    )

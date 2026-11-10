@@ -22,7 +22,8 @@ RESOURCE_RE = re.compile(r"name='([^']+)' count=(\d+)(?: type=\w+)?")
 # SUMMARISE_LONG: per-belt contents as counts (lane totals stay); static size
 #   fields (STATIC_KEYS) and empty values not listed;
 # SUMMARISE_VARYING: values with more than 3 distinct values become ranges,
-#   except KEEP_KEYS (connections, recipe, status, ...) and the positions of a
+#   except KEEP_KEYS (connections, recipe, status, ...), UNSUMMARISED_KEYS
+#   (status_detail: the game's reason stays with each entity's position) and the positions of a
 #   group's belts, ends, pipes and poles (ABSOLUTE_KEYS);
 # KEY_VALUES_ONLY: values that differ, outside KEEP_KEYS and ABSOLUTE_KEYS,
 #   are not listed; long pipe / pole position lists become counts and areas
@@ -60,6 +61,10 @@ KEEP_KEYS = {
     "research",
     "lanes",
 }
+# Never summarised as 'varies': listed per entity down to SUMMARISE_VARYING, not
+# listed from KEY_VALUES_ONLY on (the Machine Status section gives the reason
+# and position of every machine that is not working)
+UNSUMMARISED_KEYS = {"status_detail"}
 
 # At SUMMARISE_LONG, list values longer than this (belt contents, positions of
 # belts / pipes / poles) are replaced by their counts and area
@@ -382,6 +387,8 @@ def render_type_noted(
             vals = [s.get(key, "") for _, s in prepared]
             if level >= KEY_VALUES_ONLY:
                 dropped.add(key)
+            elif key in UNSUMMARISED_KEYS:
+                continue
             elif len(set(vals)) > 3:
                 summarised[key] = _summary(vals)
     noted |= set(summarised)

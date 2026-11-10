@@ -12,12 +12,24 @@ POWER_KEYS = {"production", "consumption", "demand", "generator_max"}
 ENERGY_KEYS = {"accumulator_charge", "accumulator_capacity"}
 # At most this many electric networks are listed in the Power section
 POWER_NETWORKS_SHOWN = 10
-# Machine Status section: at most this many lines (machine and recipe), each with
-# at most MACHINE_STATES_SHOWN states; the rest are counted as "(N more)"
+# Machine Status section. Every machine that is not working is listed with its
+# position and the game's reason. Lines whose machines are all working are
+# counts only, and at most MACHINE_LINES_SHOWN of them are listed (the rest are
+# counted). The whole section stays within MACHINE_SECTION_CHARS: lines are
+# kept whole, and a last line counts the machines on the lines left out.
 MACHINE_LINES_SHOWN = 20
-MACHINE_STATES_SHOWN = 4
+MACHINE_SECTION_CHARS = 10000
 # Entity types listed in the Machine Status section
-MACHINE_TYPES = {"assembling-machine", "rocket-silo", "furnace", "lab", "mining-drill"}
+MACHINE_TYPES = {
+    "assembling-machine",
+    "rocket-silo",
+    "furnace",
+    "lab",
+    "mining-drill",
+    "inserter",
+}
+# States counted without positions
+MACHINE_WORKING_STATES = {"working", "normal"}
 
 
 def _si(value: float, unit: str) -> str:
@@ -968,21 +980,37 @@ class BasicObservationFormatter:
 
     @staticmethod
     def format_machine_status(entities: List[Any]) -> str:
-        """One line per machine type and recipe: how many machines are in each
-        status, with the status detail (the game's reason) when there is one.
-        Counts and the game's reasons only, sorted by name.
+        """One line per machine type and recipe (inserters: per inserter type):
+        how many machines are in each state. A state is the status detail (the
+        game's reason) when there is one, else the status name. Every state
+        other than working ends with "at" and the positions of its machines
+        (entity_compact.positions_text); working machines are a count. Counts,
+        the game's reasons and positions only, sorted by name.
+
+        Lines whose machines are all working: at most MACHINE_LINES_SHOWN, the
+        rest counted. The section stays within MACHINE_SECTION_CHARS: lines are
+        kept whole and the last line counts the machines on the lines left out.
 
         Example:
         ### Machine Status
-        - assembling-machine-1 [iron-gear-wheel]: 3 (2 working, 1 missing iron-plate (0 of 1 per craft))
+        - assembling-machine-1 [iron-gear-wheel]: 3 (2 working, 1 missing iron-plate (0 of 1 per craft) at (7.5, 1.5))
         """
+        from fle.env.gym_env.entity_compact import positions_text
 
         def attr(obj: Any, key: str) -> Any:
             if isinstance(obj, dict):
                 return obj.get(key, obj.get("_" + key))
             return getattr(obj, key, None)
 
-        groups: Dict[str, Dict[str, int]] = {}
+        def position(e: Any) -> Optional[Tuple[float, float]]:
+            pos = attr(e, "position")
+            x, y = attr(pos, "x"), attr(pos, "y")
+            try:
+                return (float(x), float(y))
+            except (TypeError, ValueError):
+                return None
+
+        groups: Dict[str, Dict[str, List[Optional[Tuple[float, float]]]]] = {}
         for e in entities or []:
             if not isinstance(e, dict):
                 continue
@@ -999,24 +1027,70 @@ class BasicObservationFormatter:
             status = attr(e, "status")
             status = str(getattr(status, "value", status) or "unknown")
             state = attr(e, "status_detail") or status.replace("_", " ")
-            counts = groups.setdefault(name, {})
-            counts[state] = counts.get(state, 0) + 1
+            groups.setdefault(name, {}).setdefault(state, []).append(position(e))
         if not groups:
             return ""
 
+        # (line, working machines, non-working machines) per name
+        entries: List[Tuple[str, int, int]] = []
+        for name in sorted(groups):
+            states = groups[name]
+            parts = []
+            working = stalled = 0
+            for state in sorted(
+                states, key=lambda k: (k not in MACHINE_WORKING_STATES, k)
+            ):
+                group = states[state]
+                text = f"{len(group)} {state}"
+                if state in MACHINE_WORKING_STATES:
+                    working += len(group)
+                else:
+                    stalled += len(group)
+                    placed = [p for p in group if p is not None]
+                    where = positions_text(placed)
+                    if len(placed) < len(group):
+                        where = (
+                            where + " " if where else ""
+                        ) + f"({len(group) - len(placed)} without a position)"
+                    text += f" at {where}"
+                parts.append(text)
+            entries.append(
+                (
+                    f"- {name}: {working + stalled} ({', '.join(parts)})",
+                    working,
+                    stalled,
+                )
+            )
+
         lines = ["### Machine Status"]
-        for name in sorted(groups)[:MACHINE_LINES_SHOWN]:
-            counts = groups[name]
-            states = sorted(counts, key=lambda k: (k != "working", k))
-            parts = [f"{counts[k]} {k}" for k in states[:MACHINE_STATES_SHOWN]]
-            hidden = states[MACHINE_STATES_SHOWN:]
-            if hidden:
-                n = sum(counts[k] for k in hidden)
-                parts.append(f"({n} more)")
-            lines.append(f"- {name}: {sum(counts.values())} ({', '.join(parts)})")
-        more = len(groups) - MACHINE_LINES_SHOWN
-        if more > 0:
-            lines.append(f"- ({more} more)")
+        used = len(lines[0])
+        # room kept for the last line when lines are left out
+        budget = MACHINE_SECTION_CHARS - 80
+        all_working_lines = more_working_lines = 0
+        left_working = left_stalled = 0
+        for line, working, stalled in entries:
+            if not stalled:
+                all_working_lines += 1
+                if all_working_lines > MACHINE_LINES_SHOWN:
+                    more_working_lines += 1
+                    continue
+            if used + 1 + len(line) > budget:
+                left_working += working
+                left_stalled += stalled
+                continue
+            lines.append(line)
+            used += 1 + len(line)
+        if more_working_lines:
+            lines.append(f"- ({more_working_lines} more, all working)")
+        if left_stalled and left_working:
+            lines.append(
+                f"- ({left_stalled} more non-working machines and "
+                f"{left_working} more working machines not listed)"
+            )
+        elif left_stalled:
+            lines.append(f"- ({left_stalled} more non-working machines not listed)")
+        elif left_working:
+            lines.append(f"- ({left_working} more working machines not listed)")
         return "\n".join(lines)
 
     @staticmethod
@@ -1306,7 +1380,8 @@ class TreeObservationFormatter(BasicObservationFormatter):
         geometry is relative to the entity (+(dx, dy)); 3+ differing groups are
         a table (keys once as columns). When that is still too long, detail is
         reduced one level at a time for all types alike (entity_compact levels:
-        per-belt contents as counts, values that vary a lot as ranges,
+        per-belt contents as counts, values that vary a lot as ranges (never
+        status_detail),
         differing values other than connections / recipe / status left out,
         status and positions, counts and area), and the section names each
         type that was summarised and how. Entities are never left out."""
