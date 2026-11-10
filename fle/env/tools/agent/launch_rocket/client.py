@@ -15,7 +15,7 @@ class LaunchRocket(Tool):
         """
         Launch a rocket.
         :param silo: Rocket silo
-        :return: Your final position
+        :return: The updated RocketSilo
         """
 
         if isinstance(silo, Position):

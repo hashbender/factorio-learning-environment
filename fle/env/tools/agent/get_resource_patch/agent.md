@@ -17,7 +17,7 @@ The tool provides:
 patch = get_resource_patch(
     resource=Resource.X,     # Resource type to find
     position=Position(x,y),  # Center position to search
-    radius=10               # Search radius (default: 10)
+    radius=30               # Search radius (default: 30)
 )
 ```
 
@@ -25,7 +25,7 @@ patch = get_resource_patch(
 
 1. `resource`: Resource - Type of resource to analyze (e.g., Resource.Coal, Resource.Water)
 2. `position`: Position - Center point to search around
-3. `radius`: int - Search radius in tiles (default: 10)
+3. `radius`: int - Search radius in tiles (default: 30)
 
 ### Return Value
 

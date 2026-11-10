@@ -27,7 +27,7 @@ sleep(10)
 # Wait for furnace to smelt items
 furnace = place_entity(Prototype.StoneFurnace, position=Position(0, 0))
 insert_item(Prototype.IronOre, furnace, 10)
-sleep(15)  # Wait for smelting to complete
+sleep(32)  # 10 iron plates take 32 s in a stone furnace (3.2 s each)
 ```
 
 ## Key Behaviors
