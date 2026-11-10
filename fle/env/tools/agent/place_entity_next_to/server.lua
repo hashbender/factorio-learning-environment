@@ -411,6 +411,19 @@ storage.actions.place_entity_next_to = function(player_index, entity, ref_x, ref
 
     orientation = storage.utils.get_entity_direction(entity, direction)
 
+    -- The same reach rule as place_entity, now that the position is known
+    local max_distance = player.reach_distance or player.build_distance
+    local reach_dx = player.position.x - new_position.x
+    local reach_dy = player.position.y - new_position.y
+    local reach_distance = math.sqrt(reach_dx * reach_dx + reach_dy * reach_dy)
+    if reach_distance > max_distance then
+        error("\"The target position is too far away to place the entity. The player position is " ..
+              player.position.x .. ", " .. player.position.y ..
+              " and the target position is " .. new_position.x .. ", " .. new_position.y ..
+              ". The distance is " .. string.format("%.2f", reach_distance) ..
+              " and the max distance is " .. max_distance .. ". Move closer.\"")
+    end
+
     if ref_entity then
         local prototype = prototypes.entity[ref_entity.name]
         local collision_box = prototype.collision_box
