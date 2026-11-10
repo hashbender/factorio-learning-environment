@@ -10,8 +10,22 @@ def game(configure_game):
 
 def test_queue_research_appends_in_order(game):
     game.set_research(Technology.Automation)
-    queue = game.queue_research([Technology.Logistics, "automation-2"])
-    assert queue == ["automation", "logistics", "automation-2"]
+    # Factorio 2.0: automation-2 needs automation, steel-processing and logistic-science-pack
+    queue = game.queue_research(
+        [
+            Technology.Logistics,
+            "logistic-science-pack",
+            "steel-processing",
+            "automation-2",
+        ]
+    )
+    assert queue == [
+        "automation",
+        "logistics",
+        "logistic-science-pack",
+        "steel-processing",
+        "automation-2",
+    ]
 
 
 def test_queue_research_returns_the_queue(game):
@@ -25,7 +39,7 @@ def test_queue_research_missing_prerequisite_queues_nothing(game):
         game.queue_research(Technology.Automation2)
     assert str(exc_info.value) == (
         "Cannot queue automation-2. Missing prerequisites (not researched or queued): "
-        "automation"
+        "automation, logistic-science-pack, steel-processing"
     )
     assert game.queue_research([]) == ["logistics"]
 

@@ -575,6 +575,7 @@ def test_get_lab(configure_game):
         ent.Direction.RIGHT,
         spacing=3,
     )
+    game.move_to(lab1.position)  # within reach of where the pole goes
     game.place_entity_next_to(
         Prototype.SmallElectricPole, lab1.position, ent.Direction.LEFT, spacing=3
     )
