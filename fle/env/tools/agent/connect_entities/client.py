@@ -25,6 +25,7 @@ from fle.env.tools.admin.extend_collision_boxes.client import ExtendCollisionBox
 from fle.env.tools.admin.get_cliffs.client import GetCliffs
 from fle.env.tools.admin.get_path.client import GetPath
 from fle.env.tools.admin.request_path.client import RequestPath
+from fle.env.tools.agent.connect_entities import belt_guard
 from fle.env.tools.agent.connect_entities.path_result import PathResult
 from fle.env.tools.agent.connect_entities.resolver import ConnectionType, Resolver
 from fle.env.tools.agent.connect_entities.resolvers.fluid_connection_resolver import (
@@ -122,6 +123,7 @@ class ConnectEntities(Tool):
         *waypoints: Union[Position, Entity, EntityGroup],
         connection_type: Union[Prototype, Set[Prototype]] = None,
         dry_run: bool = False,
+        allow_belt_changes: bool = False,
         **kwargs,
     ) -> EntityGroup:
         """
@@ -131,6 +133,7 @@ class ConnectEntities(Tool):
         :param waypoints: Two or more Positions, Entities or EntityGroups to connect
         :param connection_type: The Prototype to connect with, or a set of Prototypes of one kind, e.g. {Prototype.Pipe, Prototype.UndergroundPipe}
         :param dry_run: If True, place nothing and return the number of entities required and available
+        :param allow_belt_changes: Belts only. If False (default), belts that are already on the map keep their direction, type and position; a route that would change one fails, naming it, and nothing is built. If True, the end belt of an existing line may be turned to face the new belts.
         :return: The resulting entity group (e.g. a BeltGroup, PipeGroup or ElectricityGroup)
         """
         args = waypoints
@@ -138,6 +141,8 @@ class ConnectEntities(Tool):
             kwargs["connection_type"] = connection_type
         if dry_run:
             kwargs["dry_run"] = dry_run
+        if allow_belt_changes:
+            kwargs["allow_belt_changes"] = allow_belt_changes
         max_retries = 2
         retry_count = 0
 
@@ -197,18 +202,39 @@ class ConnectEntities(Tool):
             self.game_state.instance.get_elapsed_ticks() if not dry_run else 0
         )
 
+        # Belts already on the map are recorded so the route can be checked against them
+        self._protected_belts = None
+        if (
+            not dry_run
+            and not kwargs.get("allow_belt_changes", False)
+            and connection_types
+            and self._get_connection_type(next(iter(connection_types)))
+            == ConnectionType.TRANSPORT
+        ):
+            self._protected_belts = self._snapshot_belts(waypoints)
+
         # this is a bit hacky and we should rethink how to do dry runs
         # right now the type of the connection output changes if its a dry run
         if dry_run:
             total_required_entities = 0
-        for _, target in zip(waypoints[:-1], waypoints[1:]):
-            connection = self._connect_pair_of_waypoints(
-                connection, target, connection_types=connection_types, dry_run=dry_run
-            )
-            if dry_run:
-                total_required_entities += connection["number_of_entities_required"]
-                entities_available = connection["number_of_entities_available"]
-            # sleep(0.01) # Sleep for 250ms to ensure that the game updates
+        try:
+            for _, target in zip(waypoints[:-1], waypoints[1:]):
+                connection = self._connect_pair_of_waypoints(
+                    connection,
+                    target,
+                    connection_types=connection_types,
+                    dry_run=dry_run,
+                )
+                if dry_run:
+                    total_required_entities += connection["number_of_entities_required"]
+                    entities_available = connection["number_of_entities_available"]
+                self._check_protected_belts()
+        except Exception:
+            # a failed route must not leave an existing belt changed either
+            self._check_protected_belts()
+            raise
+        finally:
+            self._protected_belts = None
 
         # Sleep for the appropriate real-world time based on elapsed ticks (only for non-dry runs)
         if not dry_run:
@@ -276,6 +302,66 @@ class ConnectEntities(Tool):
             )
         return connection
 
+    def _snapshot_belts(self, waypoints) -> Optional[Dict]:
+        positions = []
+        for waypoint in waypoints:
+            if isinstance(waypoint, EntityGroup) and getattr(waypoint, "belts", None):
+                positions.extend((b.position.x, b.position.y) for b in waypoint.belts)
+            elif isinstance(waypoint, (Position, Entity, EntityGroup)):
+                positions.append(tuple(self.get_position(waypoint)))
+        if not positions:
+            return None
+        box = belt_guard.bounding_box(positions)
+        self._protected_box = box
+        return belt_guard.parse_snapshot(
+            self.connection.rcon_client.send_command(
+                belt_guard.snapshot_command(self.player_index, box)
+            )
+        )
+
+    def _belt_group_joining(self, source_pos: Position, target_pos: Position):
+        """The belt group that already holds belts at both positions, if any."""
+        belts = {
+            Prototype.TransportBelt,
+            Prototype.FastTransportBelt,
+            Prototype.ExpressTransportBelt,
+            Prototype.UndergroundBelt,
+            Prototype.FastUndergroundBelt,
+            Prototype.ExpressUndergroundBelt,
+        }
+        try:
+            # get_entities only returns the belts within the radius
+            reach = abs(source_pos.x - target_pos.x) + abs(source_pos.y - target_pos.y)
+            groups = self.get_entities(belts, source_pos, radius=reach + 10)
+        except Exception:
+            return None
+        for group in groups:
+            positions = [b.position for b in getattr(group, "belts", [])]
+            if any(p.is_close(source_pos, 0.71) for p in positions) and any(
+                p.is_close(target_pos, 0.71) for p in positions
+            ):
+                return group
+        return None
+
+    def _check_protected_belts(self):
+        """Fail, after undoing the call, if a belt that was already there has changed."""
+        before = getattr(self, "_protected_belts", None)
+        if before is None:
+            return
+        rcon = self.connection.rcon_client
+        command = belt_guard.snapshot_command(self.player_index, self._protected_box)
+        after = belt_guard.parse_snapshot(rcon.send_command(command))
+        if after is None:
+            return
+        changes = belt_guard.changed_belts(before, after)
+        if not changes:
+            return
+        self._protected_belts = None  # check once
+        rcon.send_command(belt_guard.rollback_command(self.player_index, before, after))
+        restored = belt_guard.parse_snapshot(rcon.send_command(command))
+        rolled_back = restored is not None and restored == before
+        raise Exception(belt_guard.conflict_message(changes, rolled_back))
+
     def _validate_connection_types(self, connection_types: Set[Prototype]):
         """
         Ensure that all connection_types handle the same contents - either FLUID, TRANSPORT or POWER
@@ -320,6 +406,48 @@ class ConnectEntities(Tool):
         # Resolve source and target positions
         prioritised_list_of_position_pairs = resolver.resolve(source, target)
 
+        # Starting beside the end belt of an existing line only connects if that
+        # belt is turned, so without allow_belt_changes the route starts in front of it
+        if getattr(self, "_protected_belts", None) is not None:
+            end_belt = None
+            if isinstance(source, BeltGroup) and source.outputs:
+                end_belt = source.outputs[0]
+            elif isinstance(source, TransportBelt):
+                end_belt = source
+            if end_belt is not None and end_belt.output_position is not None:
+                front = end_belt.output_position
+                in_front = self._protected_belts.get((front.x, front.y))
+                if isinstance(target, BeltGroup) and target.inputs:
+                    target_at = target.inputs[0].position
+                else:
+                    target_at = (
+                        target if isinstance(target, Position) else target.position
+                    )
+                joined = (
+                    self._belt_group_joining(end_belt.position, target_at)
+                    if in_front is not None
+                    else None
+                )
+                if joined is not None:
+                    return joined  # this line already runs to the target
+                if in_front is not None:
+                    raise Exception(
+                        f"Cannot start a belt line from {end_belt.name} at "
+                        f"({end_belt.position.x}, {end_belt.position.y}) facing "
+                        f"{belt_guard.direction_name(end_belt.direction.value)}: the tile it "
+                        f"feeds, ({front.x}, {front.y}), already holds a {in_front.name} "
+                        f"facing {belt_guard.direction_name(in_front.direction)}. Nothing was built. "
+                        "Existing belts are only changed when allow_belt_changes=True is passed."
+                    )
+                prioritised_list_of_position_pairs = [
+                    (s, t)
+                    for s, t in prioritised_list_of_position_pairs
+                    if s.is_close(end_belt.output_position, 0.1)
+                ] or [
+                    (end_belt.output_position, t)
+                    for _, t in prioritised_list_of_position_pairs
+                ]
+
         last_exception = None
         for source_pos, target_pos in prioritised_list_of_position_pairs:
             # Handle the actual connection
@@ -363,6 +491,24 @@ class ConnectEntities(Tool):
                         )
                         for ct in connection_types
                     ):
+                        protected = getattr(self, "_protected_belts", None)
+                        if protected is not None:
+                            # only a line that already runs from source to target counts
+                            existing_group = self._belt_group_joining(
+                                source_pos, target_pos
+                            )
+                            if existing_group:
+                                return existing_group
+                            on_belt = protected.get((source_pos.x, source_pos.y))
+                            if on_belt is not None:
+                                e = Exception(
+                                    f"{error_str.rstrip()} The route would start on the existing "
+                                    f"{on_belt.name} at ({source_pos.x}, {source_pos.y}) facing "
+                                    f"{belt_guard.direction_name(on_belt.direction)}. Existing belts "
+                                    "are only changed when allow_belt_changes=True is passed."
+                                )
+                            last_exception = e
+                            continue
                         existing_group = self._get_existing_connection_group(
                             target_pos, list(connection_types)[0], target
                         )
@@ -1071,7 +1217,8 @@ class ConnectEntities(Tool):
     def rotate_end_belt_to_face(
         self, source_belt_group: BeltGroup, target: BeltGroup
     ) -> BeltGroup:
-        if not source_belt_group.outputs:
+        # a closed loop has no outputs or no inputs: nothing to turn
+        if not source_belt_group.outputs or not target.inputs:
             return source_belt_group
 
         source_belt = source_belt_group.outputs[0]
@@ -1080,6 +1227,11 @@ class ConnectEntities(Tool):
         target_pos = target_belt.position
 
         if not source_pos.is_close(target_pos, 1.001):  # epsilon for
+            return source_belt_group
+
+        # A belt that was on the map before this call keeps its direction
+        protected = getattr(self, "_protected_belts", None)
+        if protected is not None and (source_pos.x, source_pos.y) in protected:
             return source_belt_group
 
         # Calculate relative position

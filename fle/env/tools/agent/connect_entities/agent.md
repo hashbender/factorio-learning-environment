@@ -71,6 +71,7 @@ Key points:
 - Always use inserters between belts and machines/chests
 - Use underground belts for crossing other belts
 - Belt groups maintain direction and flow information
+- Belts already on the map keep their direction, type and position. A route that would change one fails with an error naming that belt, and nothing is built. Connecting from a belt line starts in front of its last belt. Pass `allow_belt_changes=True` to let the tool turn the end belt of an existing line
 
 ## Pipe Connections
 
