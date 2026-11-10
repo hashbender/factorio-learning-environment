@@ -29,21 +29,24 @@ print(f"Rotated inserter: pickup={inserter.pickup_position}, drop={inserter.drop
 
 ## Entity-Specific Behaviors
 
-### 1. Assembling Machines, Oil refineris and Chemical Cplants
+### 1. Assembling Machines, Oil Refineries and Chemical Plants
 
-Always need to set the recipe for assembling machines, oil refineries and chemical plants as their behaviour differs with recipes
+Rotating keeps the recipe, items and fluids. In Factorio 2.0:
+- Chemical plants and oil refineries can be rotated with or without a recipe
+- Assembling machines 2 and 3 can only be rotated while their recipe uses a fluid (their fluid connections are off otherwise)
+- Assembling machine 1 has no fluid connections and always faces north
 
 ```python
-# Must set recipe before rotating
-assembler = place_entity(Prototype.AssemblingMachine1, position=pos)
+assembler = place_entity(Prototype.AssemblingMachine2, position=pos)
+assembler = set_entity_recipe(assembler, Prototype.IronGearWheel)
 
-# This will fail:
+# Raises: the recipe uses no fluid, so the machine keeps facing north
 try:
     assembler = rotate_entity(assembler, Direction.RIGHT)
 except Exception as e:
-    print("Cannot rotate without recipe")
+    print(e)
 
-# Correct way:
-assembler = set_entity_recipe(assembler, Prototype.IronGearWheel)
+# A recipe with a fluid ingredient turns the fluid connections on
+assembler = set_entity_recipe(assembler, RecipeName.FillWaterBarrel)
 assembler = rotate_entity(assembler, Direction.RIGHT)
 ```
