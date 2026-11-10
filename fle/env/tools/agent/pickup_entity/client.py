@@ -8,6 +8,10 @@ from fle.env.tools import Tool
 class PickupEntity(Tool):
     def __init__(self, *args):
         super().__init__(*args)
+        # Picking up needs the entity within the character's reach. Tools that
+        # remove entities they have just built themselves (connect_entities)
+        # turn this off.
+        self.check_reach = True
 
     def __call__(
         self,
@@ -58,21 +62,29 @@ class PickupEntity(Tool):
 
         if position:
             x, y = position.x, position.y
-            response, elapsed = self.execute(self.player_index, x, y, name)
+            response, elapsed = self.execute(
+                self.player_index, x, y, name, self.check_reach
+            )
         elif isinstance(entity, ent.UndergroundBelt):
             x, y = entity.position.x, entity.position.y
-            response, elapsed = self.execute(self.player_index, x, y, name)
+            response, elapsed = self.execute(
+                self.player_index, x, y, name, self.check_reach
+            )
             if response != 1 and response != {}:
                 raise Exception(f"Could not pickup: {self.get_error_message(response)}")
 
             x, y = entity.output_position.x, entity.output_position.y
-            response, elapsed = self.execute(self.player_index, x, y, name)
+            response, elapsed = self.execute(
+                self.player_index, x, y, name, self.check_reach
+            )
             if response != 1 and response != {}:
                 raise Exception(f"Could not pickup: {self.get_error_message(response)}")
 
         elif isinstance(entity, ent.Entity):
             x, y = entity.position.x, entity.position.y
-            response, elapsed = self.execute(self.player_index, x, y, name)
+            response, elapsed = self.execute(
+                self.player_index, x, y, name, self.check_reach
+            )
         else:
             raise ValueError("The second argument must be a Position object")
 

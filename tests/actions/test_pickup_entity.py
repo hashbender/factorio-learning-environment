@@ -169,3 +169,11 @@ def test_pickup_furnace_returns_its_input(configure_game):
     inventory = game.inspect_inventory()
     assert inventory[Prototype.IronOre] == 10
     assert inventory[Prototype.StoneFurnace] == 1
+
+
+def test_pickup_out_of_reach(game):
+    chest = game.place_entity(Prototype.WoodenChest, position=Position(x=0, y=0))
+    game.move_to(Position(x=30, y=0))
+    with pytest.raises(Exception, match="too far away"):
+        game.pickup_entity(chest)
+    assert game.get_entities({Prototype.WoodenChest})

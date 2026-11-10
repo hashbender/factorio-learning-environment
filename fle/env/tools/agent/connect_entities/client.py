@@ -65,6 +65,10 @@ class ConnectEntities(Tool):
         self.get_path = GetPath(self.connection, self.game_state)
         self.rotate_entity = RotateEntity(self.connection, self.game_state)
         self.pickup_entity = PickupEntity(self.connection, self.game_state)
+        # Paths are built without the character walking along them, so the
+        # belts this tool rotates and the path pieces it removes may be out of reach
+        self.rotate_entity.check_reach = False
+        self.pickup_entity.check_reach = False
         self.inspect_inventory = InspectInventory(self.connection, self.game_state)
         self.get_entities = GetEntities(self.connection, self.game_state)
         self.get_cliffs = GetCliffs(self.connection, self.game_state)

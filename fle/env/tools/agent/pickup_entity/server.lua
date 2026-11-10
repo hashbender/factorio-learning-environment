@@ -1,4 +1,4 @@
-storage.actions.pickup_entity = function(player_index, x, y, entity)
+storage.actions.pickup_entity = function(player_index, x, y, entity, check_reach)
     -- Ensure we have a valid character, recreating if necessary
     local player = storage.utils.ensure_valid_character(player_index)
     local position = {x=x, y=y}
@@ -21,11 +21,19 @@ storage.actions.pickup_entity = function(player_index, x, y, entity)
         return true
     end
 
+    -- A player can only pick up an entity or item within reach
+    local function check_within_reach(target)
+        if check_reach ~= false and not player.can_reach_entity(target) then
+            error("Entity at ("..target.position.x..", "..target.position.y..") is too far away from your position of ("..player.position.x..", "..player.position.y.."), move closer.")
+        end
+    end
+
     -- Function to pick up and add entity to player's inventory
     local function pickup_placed_entity(entities)
         for _, ent in pairs(entities) do
             if ent.valid and ent.name == entity then
                 -- game.print("Found valid placed entity: " .. ent.name)
+                check_within_reach(ent)
 
                 -- Collect all items that need to be inserted
                 local items_to_insert = {}
@@ -103,6 +111,7 @@ storage.actions.pickup_entity = function(player_index, x, y, entity)
         for _, item in pairs(ground_items) do
             if item.valid and item.stack and item.stack.name == entity then
                 -- game.print("Found valid ground item: " .. item.stack.name)
+                check_within_reach(item)
                 local count = item.stack.count
 
                 -- Check if player can receive the item

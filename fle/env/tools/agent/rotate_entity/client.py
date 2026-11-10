@@ -11,6 +11,10 @@ from fle.env.tools import Tool
 class RotateEntity(Tool):
     def __init__(self, connection, game_state):
         super().__init__(connection, game_state)
+        # Rotating needs the entity within the character's reach. Tools that
+        # adjust entities they have just built themselves (connect_entities)
+        # turn this off.
+        self.check_reach = True
 
     def __call__(
         self, entity: Entity, direction: DirectionInternal = DirectionInternal.UP
@@ -40,7 +44,12 @@ class RotateEntity(Tool):
             factorio_direction = DirectionInternal.to_factorio_direction(direction)
 
             response, elapsed = self.execute(
-                self.player_index, x, y, factorio_direction, entity.name
+                self.player_index,
+                x,
+                y,
+                factorio_direction,
+                entity.name,
+                self.check_reach,
             )
 
             if not response:

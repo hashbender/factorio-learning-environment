@@ -1,4 +1,4 @@
-storage.actions.rotate_entity = function(player_index, x, y, direction, entity)
+storage.actions.rotate_entity = function(player_index, x, y, direction, entity, check_reach)
     local character = storage.agent_characters[player_index]
     local lua_player = game.players[player_index]  -- Get the actual LuaPlayer object
     local position = {x=x, y=y}
@@ -31,6 +31,11 @@ storage.actions.rotate_entity = function(player_index, x, y, direction, entity)
 
     if closest_entity == nil then
         error("No entity to rotate at the given coordinates.")
+    end
+
+    -- A player can only rotate an entity within reach
+    if check_reach ~= false and not character.can_reach_entity(closest_entity) then
+        error("Entity at ("..closest_entity.position.x..", "..closest_entity.position.y..") is too far away from your position of ("..character.position.x..", "..character.position.y.."), move closer.")
     end
 
     -- Factorio 2.0 uses 16-direction system: 0 (north), 4 (east), 8 (south), 12 (west)
