@@ -36,6 +36,7 @@ for ingredient in ingredients:
 ## Key Behaviors
 
 - Cancels any current research before setting new research
+- Makes the technology the current research; other technologies in the research queue keep their order behind it
 - Validates technology prerequisites
 - Checks if required science pack recipes are unlocked
 - Returns detailed ingredient requirements for the research

@@ -87,6 +87,20 @@ storage.actions.set_research = function(player_index, technology_name)
         error(string.format("\"Failed to start research for %s\"", technology_name))
     end
 
+    -- add_research() appends to the research queue. With other technologies
+    -- queued, the next one would become the current research, so move the
+    -- requested technology to the front; the rest keep their order.
+    local current = force.current_research
+    if not (current and current.name == technology_name) then
+        local queue = {technology_name}
+        for _, queued in pairs(force.research_queue) do
+            if queued.name ~= technology_name then
+                table.insert(queue, queued.name)
+            end
+        end
+        force.research_queue = queue
+    end
+
     -- Collect and return the research ingredients
     local ingredients = {}
     local units_required = tech.research_unit_count
