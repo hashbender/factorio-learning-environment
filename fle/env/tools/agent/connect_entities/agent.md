@@ -242,7 +242,8 @@ print(plan)
 What a dry run does and does not cover:
 
 - The route is the one found on the map as it is now, with the items you hold now. With underground belts or pipes in the connection types, the real call uses as many underground sections as your inventory allows, and so does the dry run.
-- With several waypoints, each leg is checked separately on the map as it is now; a tile two legs share is listed once.
+- With two waypoints, the dry run and the real call use the same route search on the same map.
+- With more than two waypoints, each leg is checked separately on the map as it is now, and a tile two legs share is listed once. The real call builds leg by leg and starts each later leg from what the leg before built, so its later legs can use other tiles than the dry run lists.
 - With electric poles, `entities` lists a pole at each step of the route that is not already covered; the real call stops placing poles once the target is connected and can add one pole at the target, so its count can differ.
 - With belts, the real call refuses a route that would change a belt already on the map unless `allow_belt_changes=True`. The dry run reports a belt at the start of the route that would be turned; other changes to existing belts are only found by the real call, which then builds nothing.
 - The real call has no reach rule (it walks the route), and neither has the dry run.
