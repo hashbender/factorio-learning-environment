@@ -436,16 +436,39 @@ local function planned_key(connection_type, position)
     return connection_type .. ":" .. position.x .. ":" .. position.y
 end
 
-local function record_planned(counter_state, connection_type, position, dir)
+-- The direction an entity placed facing `game_dir` has in the tool API (place_entity,
+-- place_layout): get_entity_direction maps API directions to game directions and is
+-- not the identity for every entity (pipe-to-ground is turned round), so the dry run
+-- reports the API direction, which builds the same entity when passed back.
+local function api_direction(name, game_dir)
+    local ok, out = pcall(function()
+        for _, d in ipairs({0, 4, 8, 12}) do
+            if storage.utils.get_entity_direction(name, d) == game_dir then return d end
+        end
+        return game_dir
+    end)
+    if ok and out then return out end
+    return game_dir
+end
+storage.utils.connect_api_direction = api_direction
+
+local UNDERGROUND_NAMES = {["pipe-to-ground"] = true, ["underground-belt"] = true,
+    ["fast-underground-belt"] = true, ["express-underground-belt"] = true}
+
+local function record_planned(counter_state, connection_type, position, dir, is_underground_exit)
     if not counter_state.planned then counter_state.planned = {} end
     if not counter_state.planned_at then counter_state.planned_at = {} end
     counter_state.planned_at[planned_key(connection_type, position)] = true
-    table.insert(counter_state.planned, {
+    local entry = {
         name = "\"" .. connection_type .. "\"",
         x = position.x,
         y = position.y,
-        direction = dir or 0
-    })
+        direction = api_direction(connection_type, dir or 0)
+    }
+    if UNDERGROUND_NAMES[connection_type] then
+        entry.type = is_underground_exit and "\"output\"" or "\"input\""
+    end
+    table.insert(counter_state.planned, entry)
 end
 
 -- Nothing is built from items the character does not hold
@@ -589,7 +612,7 @@ local function place_at_position(player, connection_type, current_position, dir,
         
         elseif can_place and dry_run then
             counter_state.place_counter = counter_state.place_counter + 1
-            record_planned(counter_state, connection_type, placement_position, dir)
+            record_planned(counter_state, connection_type, placement_position, dir, is_underground_exit)
             return nil
 
         else
@@ -694,7 +717,7 @@ local function place_at_position(player, connection_type, current_position, dir,
     
     elseif can_place and dry_run then
         counter_state.place_counter = counter_state.place_counter + 1
-        record_planned(counter_state, connection_type, placement_position, dir)
+        record_planned(counter_state, connection_type, placement_position, dir, is_underground_exit)
         return nil
 
     else

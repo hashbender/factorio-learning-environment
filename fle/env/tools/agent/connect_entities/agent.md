@@ -234,7 +234,7 @@ print(plan)
 The `ConnectDryRun` has (as attributes, or like a dict: `plan["route_found"]`):
 
 - `route_found`: True when the game found a route and every placement on it passed the build check
-- `entities`: what would be placed, in route order, each with `name`, `position` and `direction` (None for entities without one); printing shows the first 40
+- `entities`: what would be placed, in route order, each with `name`, `position` and `direction` (None for entities without one), and for underground belts and pipe-to-ground `type`: "input" for the entrance, "output" for the exit. `direction` is the one to pass to `place_entity` or `place_layout` to build that same entity. Printing shows the first 40
 - `required`, `in_inventory`, `missing`: per item name, how many the route places, how many you hold, and how many you are short of; `enough_in_inventory` is True when nothing is missing
 - `belt_changes`: belts already on the map that the route would turn (only possible with `allow_belt_changes=True`)
 - `reason`: when `route_found` is False, the message the real call would fail with; `blocked_at`: the position that message names, else None

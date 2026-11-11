@@ -752,10 +752,13 @@ class PlannedEntity(BaseModel):
     name: str
     position: Position
     direction: Optional[Direction] = None  # None for entities without one (pipes, poles)
+    # Underground belts and pipe-to-ground: "input" (entrance) or "output" (exit)
+    type: Optional[str] = None
 
     def __repr__(self) -> str:
         facing = f" {self.direction.name}" if self.direction is not None else ""
-        return f"{self.name} at ({self.position.x}, {self.position.y}){facing}"
+        kind = f" {self.type}" if self.type else ""
+        return f"{self.name} at ({self.position.x}, {self.position.y}){facing}{kind}"
 
     __str__ = __repr__
 

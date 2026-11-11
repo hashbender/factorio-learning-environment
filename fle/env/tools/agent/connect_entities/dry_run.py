@@ -38,11 +38,13 @@ def planned_entities(planned: List[dict]) -> List[PlannedEntity]:
                 direction = _DIRECTIONS.get(int(item.get("direction", 0)))
             except (TypeError, ValueError):
                 direction = None
+        kind = item.get("type")
         out.append(
             PlannedEntity(
                 name=name,
                 position=Position(x=item["x"], y=item["y"]),
                 direction=direction,
+                type=str(kind) if kind in ("input", "output") else None,
             )
         )
     return out
