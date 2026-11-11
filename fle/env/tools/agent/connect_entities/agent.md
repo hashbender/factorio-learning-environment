@@ -86,8 +86,9 @@ print(f"Connected offshore_pump at {offshore_pump.position} to boiler at {boiler
 Key points:
 
 - Respects fluid input/output connection points
-- Underground pipes have limited range
 - Pipe groups track fluid system IDs
+- If the route along the game's walking path cannot be built (it leads over a cliff, the path search times out, or there is none), the tool searches a route tile by tile. Pipes go only on tiles where a pipe can be built, and not beside pipes of another fluid system. With `Prototype.UndergroundPipe` among the connection types, a pipe-to-ground pair carries the pipe under anything in its way (cliffs, water, trees, buildings) when the exit is at most 9 tiles past the entrance, in a straight line.
+- With `Prototype.UndergroundPipe` among the connection types, straight runs also use the pipe-to-ground you hold, as many pairs as your inventory allows.
 
 ## Power Pole Connections
 
@@ -105,7 +106,9 @@ print(f"Created the connection to power drill at {drill.position} with steam eng
 
 Key points:
 
-- Automatically spaces poles based on wire reach
+- Poles go in a near-straight line from the source to the target, each as far from the last as the wire reach allows (small 7.5 tiles, medium 9, big 30, substation 18), on a tile where the pole can be built. The line only bends round tiles where a pole cannot be built (trees, rocks, water, cliffs, buildings).
+- If no tile within reach gets the line closer to the target (e.g. a lake wider than the reach), the poles follow the game's walking path round it instead.
+- A connection from a pole group starts from the group's pole nearest the target. A source that is not a pole but is already powered by one starts from that pole.
 - Creates electrical networks
 - Handles pole to entity connections
 - Power groups track network IDs
@@ -193,6 +196,11 @@ main_power_connection = connect_entities(drill_2,
                                 Prototype.SmallElectricPole)
 ```
 
+## Walking, items and time
+
+- The real call first walks the character along the route with `move_to`, in game time, so that every entity it builds is within reach on the way (it walks to the start of the route first). Then it builds the whole connection. The character ends where the walk ended, near the end of the route. If it cannot walk to a part of the route, the call fails there and builds nothing more.
+- Every item the route places must be in your inventory, counted per item (e.g. pipes and pipe-to-ground separately). If any item is short, nothing is built and the error says what is required and what you hold.
+
 ## Troubleshooting
 
 Common issues and solutions:
@@ -213,7 +221,7 @@ Common issues and solutions:
 
 `connect_entities(..., dry_run=True)` asks whether the connection can be built, without building it. It takes the same arguments as the real call and uses the same route search and the same build check for every placement.
 
-A dry run places nothing, turns nothing, uses no items, takes no game time and leaves you where you are. It needs none of the connecting items in your inventory. Like the real call, it has no reach rule. It does not raise when the route fails: the result says why.
+A dry run places nothing, turns nothing, uses no items, takes no game time and leaves you where you are. It needs none of the connecting items in your inventory. It does not walk the route, as the real call does. It does not raise when the route fails: the result says why.
 
 ```python
 plan = connect_entities(Position(x=3.5, y=1.5), Position(x=3.5, y=6.5), Prototype.TransportBelt, dry_run=True)
@@ -237,5 +245,6 @@ What a dry run covers:
 - The route is found on the map as it is now, with the items you hold now: with underground belts or pipes among the connection types, it uses as many underground sections as your inventory allows, as the real call does.
 - With two waypoints, the dry run and the real call use the same route search on the same map.
 - With more than two waypoints, each leg is checked separately on the map as it is now, and a tile two legs share is listed once. The real call builds leg by leg and starts each later leg from what the leg before built, so its later legs can use other tiles than the dry run lists.
-- With electric poles, `entities` lists a pole at each step of the route that is not already covered; the real call stops placing poles once the target is connected and can add one pole at the target, so its count can differ.
+- With electric poles, `entities` lists every pole the real call places. The real call stops early if a pole it places joins the target pole's network, and can add one pole next to a target machine the line did not cover, so its count can differ by that.
+- A pipe connection to or from an oil refinery or chemical plant with `{Prototype.Pipe, Prototype.UndergroundPipe}` has one more fallback in the real call only: a short underground run out of the machine's port, then a route between the ends of those runs. A dry run does not try it.
 - With belts, the real call refuses a route that would change a belt already on the map unless `allow_belt_changes=True`. The dry run reports a belt at the start of the route that would be turned; other changes to existing belts are only found by the real call, which then builds nothing.

@@ -1,3 +1,4 @@
+import math
 import re
 from typing import Union, Optional, List, Dict, cast, Set
 
@@ -45,6 +46,7 @@ from fle.env.tools.agent.connect_entities.groupable_entities import (
 from fle.env.tools.agent.get_entities.client import GetEntities
 from fle.env.tools.agent.get_entity.client import GetEntity
 from fle.env.tools.agent.inspect_inventory.client import InspectInventory
+from fle.env.tools.agent.move_to.client import MoveTo
 from fle.env.tools.agent.pickup_entity.client import PickupEntity
 from fle.env.tools.agent.rotate_entity.client import RotateEntity
 from fle.env.tools import Tool
@@ -53,6 +55,9 @@ from collections.abc import Set as AbstractSet
 
 # Prototype names only: nothing else is put into a Lua command
 _PROTOTYPE_NAME = re.compile(r"[a-z0-9-]{1,100}")
+# The character walks the route before it is built: every entity of the route is
+# within this distance of a point it walks to (vanilla build reach is 10).
+_WALK_REACH = 8.0
 
 
 class ConnectEntities(Tool):
@@ -75,6 +80,7 @@ class ConnectEntities(Tool):
         self.get_entities = GetEntities(self.connection, self.game_state)
         self.get_cliffs = GetCliffs(self.connection, self.game_state)
         self.get_entity = GetEntity(self.connection, self.game_state)
+        self.move_to = MoveTo(self.connection, self.game_state)
         self._extend_collision_boxes = ExtendCollisionBoxes(
             self.connection, self.game_state
         )
@@ -107,6 +113,7 @@ class ConnectEntities(Tool):
                 Prototype.SmallElectricPole
                 | Prototype.MediumElectricPole
                 | Prototype.BigElectricPole
+                | Prototype.Substation
             ):
                 return ConnectionType.POWER
             case Prototype.StoneWall:
@@ -198,11 +205,6 @@ class ConnectEntities(Tool):
         connection = waypoints[0]
         dry_run = kwargs.get("dry_run", False)
 
-        # Track elapsed ticks for fast forward (only for non-dry runs)
-        ticks_before = (
-            self.game_state.instance.get_elapsed_ticks() if not dry_run else 0
-        )
-
         # Belts already on the map are recorded so the route can be checked against them
         self._protected_belts = None
         if (
@@ -226,6 +228,9 @@ class ConnectEntities(Tool):
                 self._protected_belts = None
         try:
             for _, target in zip(waypoints[:-1], waypoints[1:]):
+                # The character walks the leg first (in game time), so that every
+                # entity it builds was within its reach on the way.
+                self._walk_leg(connection, target, connection_types)
                 connection = self._connect_pair_of_waypoints(
                     connection,
                     target,
@@ -240,25 +245,18 @@ class ConnectEntities(Tool):
         finally:
             self._protected_belts = None
 
-        # Sleep for the appropriate real-world time based on elapsed ticks (only for non-dry runs)
         if not dry_run:
-            # Building walks the character along the route; keep player_location true.
+            # The character walked each leg with move_to (game time passed there)
+            # and stands where that walk ended; keep player_location true.
             here = self.character_position()
             if here is not None:
                 self.game_state.player_location = here
-            ticks_after = self.game_state.instance.get_elapsed_ticks()
-            ticks_added = ticks_after - ticks_before
-            if ticks_added > 0:
-                game_speed = self.game_state.instance.get_speed()
-                real_world_sleep = (  # noqa
-                    ticks_added / 60 / game_speed if game_speed > 0 else 0
-                )
-                # sleep(real_world_sleep)
 
         poles = {
             Prototype.SmallElectricPole,
             Prototype.MediumElectricPole,
             Prototype.BigElectricPole,
+            Prototype.Substation,
         }
         target = waypoints[-1]
         if not set(connection_types) & poles:
@@ -299,6 +297,93 @@ class ConnectEntities(Tool):
                 f"{target.position.y}) is not connected to an electric network"
             )
         return connection
+
+    def _walker(self):
+        """The namespace's move_to (the loaded tool, with the host's patches), else our own."""
+        walker = getattr(self.game_state, "move_to", None)
+        if callable(walker) and not isinstance(walker, type):
+            return walker
+        return self.move_to
+
+    @staticmethod
+    def stand_points(target, here, reach: float = _WALK_REACH, rings=(0, 3, 6)):
+        """Where to stand to build at `target`: the tile itself, then points around it
+        within `reach`, nearest to `here` first (e.g. this side of a cliff: building
+        reaches over cliffs, walking does not)."""
+        tx, ty = target
+        pts = [(tx, ty)]
+        for r in rings[1:]:
+            ring = [
+                (tx + r * math.cos(a * math.pi / 4), ty + r * math.sin(a * math.pi / 4))
+                for a in range(8)
+            ]
+            if here is not None:
+                ring.sort(key=lambda p: math.dist(p, here))
+            pts += [(round(x * 2) / 2, round(y * 2) / 2) for x, y in ring if r <= reach]
+        return pts
+
+    def _walk_leg(self, source, target, connection_types):
+        """Walk the character along what this leg will build (move_to, game time), so
+        that every entity of the leg is within _WALK_REACH of a point it stood on."""
+        try:
+            leg = self._connect_pair_of_waypoints(
+                source, target, connection_types=connection_types, dry_run=True
+            )
+        except Exception:
+            return  # the real call reports why the leg cannot be built
+        if not isinstance(leg, dict):
+            return  # already connected: nothing to build
+        planned = [
+            (float(e["x"]), float(e["y"]))
+            for e in (leg.get("planned") or [])
+            if isinstance(e, dict) and "x" in e and "y" in e
+        ]
+        here = self.character_position() or self.game_state.player_location
+        cur = (float(here.x), float(here.y)) if here is not None else None
+        walker = self._walker()
+        stood = [cur] if cur is not None else []  # where it stood, to step back to
+
+        def reach(x, y, tries):
+            nonlocal cur
+            last = None
+            for sx, sy in self.stand_points((x, y), cur)[:tries]:
+                try:
+                    p = walker(Position(x=sx, y=sy))
+                    at = (float(p.x), float(p.y)) if p is not None else (sx, sy)
+                except Exception as e:  # noqa: BLE001
+                    last = e
+                    continue
+                cur = at
+                if math.dist(at, (x, y)) <= _WALK_REACH + 0.5:
+                    stood.append(at)
+                    return None
+                last = Exception(f"stopped at ({at[0]:.1f}, {at[1]:.1f})")
+            return last or Exception("no point to stand on")
+
+        for x, y in planned:
+            if cur is not None and math.dist(cur, (x, y)) <= _WALK_REACH:
+                continue
+            error = reach(x, y, 13)
+            # The game's path search can fail from a spot hemmed in by cliffs: step
+            # back to where it stood before and try from there.
+            backs = []
+            for b in reversed(stood[:-1]):
+                if b not in backs:
+                    backs.append(b)
+            for b in backs[:3]:
+                if error is None:
+                    break
+                try:
+                    p = walker(Position(x=b[0], y=b[1]))
+                    cur = (float(p.x), float(p.y)) if p is not None else b
+                except Exception:  # noqa: BLE001
+                    continue
+                error = reach(x, y, 5)
+            if error is not None:
+                raise Exception(
+                    f"Could not walk to within reach of ({x}, {y}) to build the connection there: "
+                    f"{error}. Nothing more was built."
+                )
 
     def _dry_run(self, waypoints, connection_types, allow_belt_changes=False):
         """connect_entities(..., dry_run=True): build nothing, report the route.
@@ -572,6 +657,7 @@ class ConnectEntities(Tool):
                             Prototype.SmallElectricPole,
                             Prototype.MediumElectricPole,
                             Prototype.BigElectricPole,
+                            Prototype.Substation,
                         )
                         for ct in connection_types
                     ):
@@ -864,6 +950,28 @@ class ConnectEntities(Tool):
             if state == "not_found":
                 # The game found no way through for this box size: try the next one
                 continue
+            if state == "error":
+                # The search timed out (long routes): every other box size would wait
+                # as long. Pipes are then routed tile by tile (path handle -1);
+                # anything else fails with the reason.
+                if any(n in ("pipe", "pipe-to-ground") for n in connection_prototypes):
+                    response, _ = self.execute(
+                        self.player_index,
+                        source_pos.x,
+                        source_pos.y,
+                        target_pos.x,
+                        target_pos.y,
+                        -1,
+                        ",".join(connection_prototypes),
+                        dry_run,
+                        num_available,
+                    )
+                    return PathResult(response)
+                return PathResult(
+                    "The game's path search timed out for this route "
+                    f"from ({source_pos.x}, {source_pos.y}) to ({target_pos.x}, {target_pos.y}). "
+                    "Split it with waypoints closer together."
+                )
 
             response, _ = self.execute(
                 self.player_index,
@@ -984,20 +1092,34 @@ class ConnectEntities(Tool):
                     pass
 
             case _:  # Power poles
-                pathing_radius = 4  # Larger radius for poles
-                self._extend_collision_boxes(source_pos, target_pos)
-                try:
+                # A near-straight line of poles at full wire reach, built on tiles
+                # where a pole fits; no path search (handle -1).
+                response, _ = self.execute(
+                    self.player_index,
+                    source_pos.x,
+                    source_pos.y,
+                    target_pos.x,
+                    target_pos.y,
+                    -1,
+                    ",".join(connection_type_names_values),
+                    dry_run,
+                    num_available,
+                )
+                result = PathResult(response)
+                if not result.is_success and "No placeable tile for a pole" in str(
+                    result.error_message
+                ):
+                    # The straight line is blocked (e.g. by a lake wider than the
+                    # reach): follow the game's walking path round it instead.
                     result = self._attempt_path_finding(
                         source_pos,
                         target_pos,
                         connection_type_names_values,
                         num_available,
-                        pathing_radius,
+                        4,
                         dry_run,
                         True,
                     )
-                finally:
-                    self._clear_collision_boxes()
 
         if not result.is_success:
             raise Exception(
@@ -1036,12 +1158,18 @@ class ConnectEntities(Tool):
             metaclasses[connection_prototype] = metaclass
             connection_type_names[connection_type] = connection_prototype
             names_to_type[connection_prototype] = connection_type
+        # The item counted as "available": the plain (not underground) one, so the
+        # answer does not depend on the order of the set.
+        plain = sorted(
+            connection_types,
+            key=lambda t: ("underground" in t.value[0] or "-to-ground" in t.value[0], t.value[0]),
+        )[0]
         return {
             "connection_names": connection_type_names,
             "names_to_types": names_to_type,
             "metaclasses": metaclasses,
-            "last_connection_prototype": connection_prototype,
-            "last_connection_type": connection_type,
+            "last_connection_prototype": plain.value[0],
+            "last_connection_type": plain,
         }
 
     def _get_groupable_entities(self, result, metaclasses, names_to_type):
@@ -1071,6 +1199,7 @@ class ConnectEntities(Tool):
                     Prototype.UndergroundPipe,
                     Prototype.SmallElectricPole,
                     Prototype.BigElectricPole,
+                    Prototype.Substation,
                     Prototype.MediumElectricPole,
                 ):
                     groupable_entities.append(entity)
@@ -1428,6 +1557,7 @@ class ConnectEntities(Tool):
             {
                 Prototype.SmallElectricPole,
                 Prototype.BigElectricPole,
+                Prototype.Substation,
                 Prototype.MediumElectricPole,
             },
             source_pos,
@@ -1639,9 +1769,9 @@ class ConnectEntities(Tool):
             if entity_direction.name not in offset_dict:
                 raise Exception(f"Invalid direction for {input_entity.name}")
             # get the offsets from the directions
-            offset = offset_dict[entity_direction.name]
-            offset["x"] = offset["x"] * offset_sign
-            offset["y"] = offset["y"] * offset_sign
+            # a copy: the calibrated offsets are shared between calls
+            base = offset_dict[entity_direction.name]
+            offset = {"x": base["x"] * offset_sign, "y": base["y"] * offset_sign}
             try:
                 output_dict = self.get_straight_line_path(
                     input_pos, offset, margin, run_idx, num_available
@@ -1718,6 +1848,7 @@ class ConnectEntities(Tool):
                 Prototype.SmallElectricPole,
                 Prototype.MediumElectricPole,
                 Prototype.BigElectricPole,
+                Prototype.Substation,
             ):
                 # For power poles, get electricity groups
                 groups = self.get_entities(
@@ -1725,6 +1856,7 @@ class ConnectEntities(Tool):
                         Prototype.SmallElectricPole,
                         Prototype.MediumElectricPole,
                         Prototype.BigElectricPole,
+                        Prototype.Substation,
                     },
                     target_pos,
                     radius=10,

@@ -8,7 +8,7 @@ local MAX_UNDERGROUND_SEGMENTS = 50
 
 -- Wire reach values for different electric pole types
 local wire_reach = {
-    ['small-electric-pole'] = 4,
+    ['small-electric-pole'] = 7.5,
     ['medium-electric-pole'] = 9,
     ['big-electric-pole'] = 30,
     ['substation'] = 18
@@ -18,7 +18,7 @@ local default_connect_types = {
     ['pipe-to-ground'] = 'pipe',
     ['underground-belt'] = 'transport-belt',
     ['express-underground-belt'] = 'express-transport-belt',
-    ['fast-underground-belt'] = 'fast-underground-belt',
+    ['fast-underground-belt'] = 'fast-transport-belt',
 }
 
 local underground_ranges = {
@@ -448,6 +448,14 @@ local function record_planned(counter_state, connection_type, position, dir)
     })
 end
 
+-- Nothing is built from items the character does not hold
+local function require_item(player, name, position)
+    local inventory = player.get_inventory(defines.inventory.character_main)
+    if not inventory or inventory.get_item_count(name) < 1 then
+        error("\"No " .. name .. " in your inventory to place at (" .. position.x .. ", " .. position.y .. ")\"", 0)
+    end
+end
+
 local function place_at_position(player, connection_type, current_position, dir, serialized_entities, dry_run, counter_state, is_underground_exit)
 
     local is_electric_pole = wire_reach[connection_type] ~= nil
@@ -570,8 +578,7 @@ local function place_at_position(player, connection_type, current_position, dir,
 
         -- Place entity
         if can_place and not dry_run then
-            --storage.utils.avoid_entity(player.index, connection_type, placement_position, dir)
-
+            require_item(player, connection_type, placement_position)
             local placed_entity = game.surfaces[1].create_entity(entity_variant)
             if placed_entity then
                 player.remove_item({name = connection_type, count = 1})
@@ -669,8 +676,7 @@ local function place_at_position(player, connection_type, current_position, dir,
 
     -- Place entity
     if can_place and not dry_run then
-        --storage.utils.avoid_entity(player.index, connection_type, placement_position, dir)
-
+        require_item(player, connection_type, placement_position)
         local placed_entity = game.surfaces[1].create_entity({
             name = connection_type,
             position = placement_position,
@@ -805,6 +811,613 @@ local function adjacent_pipe_leg(connection_types, start_position, end_position)
 end
 storage.utils.adjacent_pipe_leg = adjacent_pipe_leg
 
+-- ---------------------------------------------------------------------------
+-- Electric poles: a near-straight line of poles from the source to the target.
+-- Each pole goes as far along the line as its wire reaches, on a tile where it
+-- can be built; the line only bends where tiles are blocked (trees, rocks,
+-- water, cliffs, buildings). The game's walking path is used only as a guide
+-- when the straight line cannot get through (e.g. a lake wider than the reach).
+-- ---------------------------------------------------------------------------
+local POLE_WIRE_REACH = {
+    ['small-electric-pole'] = 7.5,
+    ['medium-electric-pole'] = 9,
+    ['big-electric-pole'] = 30,
+    ['substation'] = 18
+}
+local POLE_SUPPLY = {
+    ['small-electric-pole'] = 2.5,
+    ['medium-electric-pole'] = 3.5,
+    ['big-electric-pole'] = 2,
+    ['substation'] = 9
+}
+
+local function prototype_number(name, getter)
+    local ok, value = pcall(function()
+        local proto = prototypes.entity[name]
+        return getter(proto)
+    end)
+    if ok and type(value) == "number" and value > 0 then return value end
+    return nil
+end
+
+storage.utils.pole_wire_reach = function(name)
+    return prototype_number(name, function(p) return p.get_max_wire_distance() end)
+        or POLE_WIRE_REACH[name] or 7.5
+end
+
+storage.utils.pole_supply_distance = function(name)
+    return prototype_number(name, function(p) return p.get_supply_area_distance() end)
+        or POLE_SUPPLY[name] or 2.5
+end
+
+-- 0.5 for poles one tile wide (centred on a tile), 0 for 2x2 poles (centred on a corner)
+storage.utils.pole_grid_offset = function(name)
+    local width = prototype_number(name, function(p)
+        local box = p.collision_box
+        return math.ceil(box.right_bottom.x - box.left_top.x)
+    end)
+    if not width then
+        width = (name == 'big-electric-pole' or name == 'substation') and 2 or 1
+    end
+    return (width % 2 == 1) and 0.5 or 0
+end
+
+local function distance(a, b)
+    local dx, dy = a.x - b.x, a.y - b.y
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+-- Plan the poles of one connection. Pure: the map is only seen through o.free.
+--   o.start, o.goal       positions
+--   o.reach               wire reach of the pole type placed
+--   o.offset              pole_grid_offset of that type
+--   o.free(p)             true if a pole can be built with its centre at p
+--   o.start_reach         wire reach of the pole at o.start, or nil when there is none
+--                         (then the first pole is built on or next to o.start)
+--   o.goal_reach          wire reach of the pole at o.goal, or nil when o.goal is a
+--                         place to power (then the last pole is built on or next to it)
+--   o.guide               optional list of positions (a walking path) to follow
+--                         instead of the straight line
+-- Returns a list of pole positions in build order, or nil and a reason.
+storage.utils.plan_pole_line = function(o)
+    local reach = o.reach - 0.001
+    local offset = o.offset or 0.5
+    local function snap(v)
+        if offset == 0.5 then return math.floor(v) + 0.5 end
+        return math.floor(v + 0.5)
+    end
+    local function candidates(centre, r)
+        local out = {}
+        local x0, x1 = snap(centre.x - r) - 1, snap(centre.x + r) + 1
+        local y0, y1 = snap(centre.y - r) - 1, snap(centre.y + r) + 1
+        for x = x0, x1 do
+            for y = y0, y1 do
+                local c = {x = x, y = y}
+                if distance(c, centre) <= r then out[#out + 1] = c end
+            end
+        end
+        return out
+    end
+    local function fmt(p) return string.format("(%.1f, %.1f)", p.x, p.y) end
+    local goal = o.goal
+    local poles = {}
+    local cur, link
+
+    if o.start_reach then
+        cur, link = o.start, math.min(reach, o.start_reach - 0.001)
+    else
+        -- first pole on the start tile, else the nearest buildable tile (nearer the goal on ties)
+        local list = candidates(o.start, 3)
+        table.sort(list, function(a, b)
+            local da, db = distance(a, o.start), distance(b, o.start)
+            if math.abs(da - db) > 1e-9 then return da < db end
+            return distance(a, goal) < distance(b, goal)
+        end)
+        for _, c in ipairs(list) do
+            if o.free(c) then cur = c; break end
+        end
+        if not cur then
+            return nil, "No tile to build a pole on within 3 tiles of " .. fmt(o.start)
+        end
+        poles[1] = cur
+        link = reach
+    end
+
+    -- how close the last pole must come to a goal that is not a pole
+    local finish = 1.5
+    local guide_at = 1
+    local limit = math.ceil(distance(cur, goal)) + 20
+    while #poles <= limit do
+        if o.goal_reach then
+            if distance(cur, goal) <= math.min(link, o.goal_reach - 0.001) then return poles end
+        elseif distance(cur, goal) < 0.01 then
+            return poles
+        end
+
+        -- the last pole: within wire reach of this one and on (or next to) the goal
+        local end_r = o.goal_reach and math.min(reach, o.goal_reach - 0.001) or finish
+        if distance(cur, goal) <= link + end_r then
+            local list = {}
+            for _, c in ipairs(candidates(goal, end_r)) do
+                if distance(c, cur) <= link then list[#list + 1] = c end
+            end
+            table.sort(list, function(a, b) return distance(a, goal) < distance(b, goal) end)
+            for _, c in ipairs(list) do
+                if o.free(c) then
+                    poles[#poles + 1] = c
+                    return poles
+                end
+            end
+            if not o.goal_reach and distance(cur, goal) <= finish then
+                return poles  -- already next to the goal, its own tile is taken
+            end
+        end
+
+        -- the next pole: the buildable tile within reach that gets closest to the aim
+        local aim = goal
+        if o.guide and guide_at <= #o.guide then
+            -- the farthest guide point within reach, else the next one not reached yet
+            local j = nil
+            for k = guide_at, #o.guide do
+                if distance(cur, o.guide[k]) <= link then j = k end
+            end
+            if j then
+                aim = o.guide[j]
+                guide_at = j + 1
+            else
+                aim = o.guide[guide_at]
+            end
+        end
+        local list = candidates(cur, link)
+        local scored = {}
+        local here = distance(cur, aim)
+        -- keep to the straight line from the first pole to the goal (no drift)
+        local line_a, line_b = (o.guide and cur) or poles[1] or o.start, aim
+        local lx, ly = line_b.x - line_a.x, line_b.y - line_a.y
+        local llen = math.sqrt(lx * lx + ly * ly)
+        local function off_line(c)
+            if llen < 1e-9 then return 0 end
+            return math.abs(lx * (line_a.y - c.y) - (line_a.x - c.x) * ly) / llen
+        end
+        for _, c in ipairs(list) do
+            local d = distance(c, aim)
+            if d < here - 0.5 or d < 0.01 then
+                scored[#scored + 1] = {c = c, d = d, s = d + 0.5 * off_line(c)}
+            end
+        end
+        table.sort(scored, function(a, b)
+            if math.abs(a.s - b.s) > 1e-9 then return a.s < b.s end
+            return distance(a.c, cur) > distance(b.c, cur)
+        end)
+        local nxt
+        for _, s in ipairs(scored) do
+            if o.free(s.c) then nxt = s.c; break end
+        end
+        if not nxt then
+            return nil, "No placeable tile for a pole within wire reach (" .. o.reach .. ") of " .. fmt(cur)
+                .. " that gets closer to " .. fmt(aim) .. ": the tiles toward it are blocked"
+        end
+        poles[#poles + 1] = nxt
+        cur, link = nxt, reach
+    end
+    return nil, "Pole route did not reach " .. fmt(goal)
+end
+
+-- true if a pole/pipe of this name can be built at p (a character standing there
+-- is moved aside when the entity is built, so it does not count)
+local function buildable_at(surface, force, name, p, half)
+    if surface.can_place_entity{name = name, position = p, force = force} then return true end
+    local area = {{p.x - half + 0.01, p.y - half + 0.01}, {p.x + half - 0.01, p.y + half - 0.01}}
+    local blockers = surface.find_entities_filtered{area = area}
+    if #blockers == 0 then return false end
+    for _, e in pairs(blockers) do
+        if e.type ~= "character" and e.type ~= "resource" then return false end
+    end
+    local tile = surface.get_tile(p.x, p.y)
+    local ok, water = pcall(function() return tile.collides_with("water_tile") end)
+    if ok and water then return false end
+    local name_ok, tile_name = pcall(function() return tile.name end)
+    if name_ok and tile_name and tile_name:find("water") then return false end
+    return true
+end
+
+local function pole_at(surface, p)
+    local found = surface.find_entities_filtered{type = "electric-pole", position = p, radius = 0.5}
+    local best, best_d
+    for _, e in pairs(found) do
+        local d = distance(e.position, p)
+        if not best or d < best_d then best, best_d = e, d end
+    end
+    return best
+end
+
+local function connect_poles(player, source_x, source_y, target_x, target_y, raw_path, pole_name, dry_run)
+    local surface = player.surface
+    local start = {x = source_x, y = source_y}
+    local goal = {x = target_x, y = target_y}
+    local reach = storage.utils.pole_wire_reach(pole_name)
+    local offset = storage.utils.pole_grid_offset(pole_name)
+    local half = offset == 0.5 and 0.5 or 1
+
+    local source_pole = pole_at(surface, start)
+    if not source_pole then
+        -- a source already on a pole: start from the pole that powers it
+        local supplied = surface.find_entities_filtered{type = "electric-pole", position = start, radius = 3}
+        local best, best_d
+        for _, e in pairs(supplied) do
+            local s = storage.utils.pole_supply_distance(e.name)
+            if math.abs(e.position.x - start.x) <= s and math.abs(e.position.y - start.y) <= s then
+                local d = distance(e.position, goal)
+                if not best or d < best_d then best, best_d = e, d end
+            end
+        end
+        source_pole = best
+    end
+    local target_pole = pole_at(surface, goal)
+
+    local guide = nil
+    if type(raw_path) == "table" and #raw_path > 0 then
+        guide = {}
+        for i = 1, #raw_path do
+            local p = raw_path[i].position or raw_path[i]
+            guide[#guide + 1] = {x = p.x, y = p.y}
+        end
+        guide[#guide + 1] = goal
+    end
+
+    local plan, why = storage.utils.plan_pole_line{
+        start = source_pole and {x = source_pole.position.x, y = source_pole.position.y} or start,
+        goal = target_pole and {x = target_pole.position.x, y = target_pole.position.y} or goal,
+        reach = reach,
+        offset = offset,
+        free = function(p) return buildable_at(surface, player.force, pole_name, p, half) end,
+        start_reach = source_pole and storage.utils.pole_wire_reach(source_pole.name) or nil,
+        goal_reach = target_pole and storage.utils.pole_wire_reach(target_pole.name) or nil,
+        guide = guide,
+    }
+    if not plan then error("\"" .. why .. "\"", 0) end
+
+    local serialized_entities = {}
+    local counter_state = {place_counter = 0}
+    if dry_run then
+        for _, p in ipairs(plan) do
+            counter_state.place_counter = counter_state.place_counter + 1
+            record_planned(counter_state, pole_name, p, 0)
+        end
+        return {entities = {}, connected = false, number_of_entities = counter_state.place_counter,
+                planned = counter_state.planned}
+    end
+
+    local inventory = player.get_inventory(defines.inventory.character_main)
+    local held = inventory and inventory.get_item_count(pole_name) or 0
+    if held < #plan then
+        error("\"You do not have enough " .. pole_name .. " in your inventory to complete this connection. Required number - "
+            .. #plan .. ", Available in inventory - " .. held .. "\"", 0)
+    end
+    local connected = false
+    for _, p in ipairs(plan) do
+        local placed = surface.create_entity{name = pole_name, position = p, force = player.force, move_stuck_players = true}
+        if not placed then
+            error(storage.utils.connect_blockage_message(pole_name, p,
+                surface.find_entities_filtered{area = {{p.x - half, p.y - half}, {p.x + half, p.y + half}}}), 0)
+        end
+        player.remove_item{name = pole_name, count = 1}
+        counter_state.place_counter = counter_state.place_counter + 1
+        table.insert(serialized_entities, storage.utils.serialize_entity(placed))
+        if target_pole and target_pole.valid and placed.electric_network_id
+            and placed.electric_network_id == target_pole.electric_network_id then
+            connected = true
+            break
+        end
+    end
+    return {entities = serialized_entities, connected = connected,
+            number_of_entities = counter_state.place_counter, planned = counter_state.planned}
+end
+
+-- ---------------------------------------------------------------------------
+-- Pipes: a tile-by-tile route search, used when the route along the game's
+-- walking path cannot be built (it can lead over cliffs, or round them for
+-- hundreds of tiles). Pipes go on buildable tiles; with pipe-to-ground among the
+-- connection types, an underground pair carries the pipe under anything up to the
+-- pipe-to-ground's reach (cliffs, water, trees, buildings). Straight runs then use
+-- the pipe-to-ground held beyond those, as the usual route does.
+-- ---------------------------------------------------------------------------
+local DIRS = {[0] = {0, -1}, [4] = {1, 0}, [8] = {0, 1}, [12] = {-1, 0}}
+local DIR_LIST = {0, 4, 8, 12}
+
+storage.utils.underground_pipe_reach = function(name)
+    return prototype_number(name or "pipe-to-ground", function(p) return p.max_underground_distance end) or 10
+end
+
+-- Plan a pipe route. Pure: the map is only seen through o.free / o.has_underground.
+--   o.start, o.goal      tile centres (always usable, they are the ends)
+--   o.free(p)            true if a pipe (or pipe-to-ground) can be built on tile p
+--   o.has_underground(p) true if tile p holds a pipe-to-ground (a tunnel must not pass one)
+--   o.max_jump           tiles from an underground entrance to its exit (0 = none)
+--   o.underground_budget pipe-to-ground held (for straight runs beyond the obstacle crossings)
+--   o.max_expand, o.margin  search limits
+-- Returns {placements = {{kind = "pipe"|"in"|"out", position = p, dir = travel dir}}, pipes, undergrounds}
+-- or nil and a reason.
+storage.utils.plan_pipe_route = function(o)
+    local sx, sy = math.floor(o.start.x), math.floor(o.start.y)
+    local gx, gy = math.floor(o.goal.x), math.floor(o.goal.y)
+    local manhattan = math.abs(gx - sx) + math.abs(gy - sy)
+    local margin = o.margin or (32 + math.floor(manhattan / 4))
+    local x0, x1 = math.min(sx, gx) - margin, math.max(sx, gx) + margin
+    local y0, y1 = math.min(sy, gy) - margin, math.max(sy, gy) + margin
+    local max_jump = o.max_jump or 0
+    local max_expand = o.max_expand or 400000
+    local free_cache = {}
+    local function tkey(x, y) return (x + 1048576) * 2097152 + (y + 1048576) end
+    local function centre(x, y) return {x = x + 0.5, y = y + 0.5} end
+    local function is_end(x, y) return (x == sx and y == sy) or (x == gx and y == gy) end
+    local function free(x, y)
+        if is_end(x, y) then return true end
+        local k = tkey(x, y)
+        local v = free_cache[k]
+        if v == nil then
+            v = o.free(centre(x, y)) and true or false
+            free_cache[k] = v
+        end
+        return v
+    end
+    local function h(x, y) return math.abs(gx - x) + math.abs(gy - y) end
+    local W = 1.5  -- weighted search: near-shortest routes, few tiles searched
+
+    -- binary heap of {f, h, key}
+    local heap = {}
+    local function push(f, hh, key)
+        local n = #heap + 1
+        heap[n] = {f, hh, key}
+        while n > 1 do
+            local p = math.floor(n / 2)
+            local a, b = heap[p], heap[n]
+            if a[1] < b[1] or (a[1] == b[1] and a[2] <= b[2]) then break end
+            heap[p], heap[n] = b, a
+            n = p
+        end
+    end
+    local function pop()
+        local top = heap[1]
+        local last = heap[#heap]
+        heap[#heap] = nil
+        if #heap > 0 then
+            heap[1] = last
+            local n = 1
+            while true do
+                local l, r, m = 2 * n, 2 * n + 1, n
+                if l <= #heap and (heap[l][1] < heap[m][1] or (heap[l][1] == heap[m][1] and heap[l][2] < heap[m][2])) then m = l end
+                if r <= #heap and (heap[r][1] < heap[m][1] or (heap[r][1] == heap[m][1] and heap[r][2] < heap[m][2])) then m = r end
+                if m == n then break end
+                heap[m], heap[n] = heap[n], heap[m]
+                n = m
+            end
+        end
+        return top
+    end
+
+    -- state: tile + arrival direction + how it was reached (0 step, 1 underground exit, 2 start)
+    local function skey(x, y, d, fl) return (tkey(x, y) * 16 + (d or 16) / 4) * 4 + fl end
+    local nodes = {}
+    local closed = {}
+    local start_key = skey(sx, sy, nil, 2)
+    nodes[start_key] = {x = sx, y = sy, d = nil, fl = 2, g = 0}
+    push(W * h(sx, sy), h(sx, sy), start_key)
+    local expanded = 0
+    local found = nil
+    local function relax(key, x, y, d, fl, g, parent, jump)
+        local n = nodes[key]
+        if n and n.g <= g then return end
+        nodes[key] = {x = x, y = y, d = d, fl = fl, g = g, parent = parent, jump = jump}
+        push(g + W * h(x, y), h(x, y), key)
+    end
+    while #heap > 0 do
+        local top = pop()
+        local key = top[3]
+        if not closed[key] then
+            closed[key] = true
+            local n = nodes[key]
+            if n.x == gx and n.y == gy and n.fl ~= 1 then found = key; break end
+            expanded = expanded + 1
+            if expanded > max_expand then break end
+            -- one tile on
+            for _, nd in ipairs(DIR_LIST) do
+                local ok = true
+                if n.fl == 1 and nd ~= n.d then ok = false end
+                if n.d and (nd + 8) % 16 == n.d then ok = false end
+                if ok then
+                    local v = DIRS[nd]
+                    local x, y = n.x + v[1], n.y + v[2]
+                    if x >= x0 and x <= x1 and y >= y0 and y <= y1 and free(x, y) then
+                        local g = n.g + 1 + ((n.d and nd ~= n.d) and 0.5 or 0)
+                        relax(skey(x, y, nd, 0), x, y, nd, 0, g, key, false)
+                    end
+                end
+            end
+            -- under an obstacle: an entrance here, the exit up to max_jump tiles on, straight
+            if max_jump >= 2 and n.fl == 0 and not is_end(n.x, n.y) then
+                local v = DIRS[n.d]
+                local blocked = false
+                for k = 1, max_jump do
+                    local x, y = n.x + v[1] * k, n.y + v[2] * k
+                    if x < x0 or x > x1 or y < y0 or y > y1 then break end
+                    if k >= 2 and blocked and not (x == gx and y == gy) and not (x == sx and y == sy) and free(x, y) then
+                        relax(skey(x, y, n.d, 1), x, y, n.d, 1, n.g + k + 10, key, true)
+                    end
+                    if o.has_underground and o.has_underground(centre(x, y)) then break end
+                    if not free(x, y) then blocked = true end
+                end
+            end
+        end
+    end
+    if not found then
+        local why = expanded > max_expand and ("the search gave up after " .. max_expand .. " tiles")
+            or ("no buildable route within " .. margin .. " tiles of the straight line")
+        if max_jump < 2 then
+            why = why .. " (without pipe-to-ground, every tile of the route must be buildable)"
+        else
+            why = why .. " (pipe-to-ground crosses at most " .. (max_jump - 1) .. " blocked tiles)"
+        end
+        return nil, why
+    end
+
+    -- the route, start to goal
+    local seq = {}
+    local k = found
+    while k do
+        local n = nodes[k]
+        table.insert(seq, 1, n)
+        k = n.parent
+    end
+    local placements = {}
+    for i, n in ipairs(seq) do
+        placements[i] = {kind = "pipe", position = centre(n.x, n.y), dir = n.d, jump = n.jump}
+        if n.jump then
+            placements[i - 1].kind = "in"
+            placements[i - 1].dir = n.d
+            placements[i].kind = "out"
+        end
+    end
+    local crossings = 0
+    for _, p in ipairs(placements) do if p.kind == "in" then crossings = crossings + 1 end end
+
+    -- straight runs: underground pairs with the pipe-to-ground left over
+    local budget = (o.underground_budget or 0) - 2 * crossings
+    if max_jump >= 2 and budget >= 2 then
+        local out = {placements[1]}
+        local i = 2
+        local n = #placements
+        while i <= n do
+            local p = placements[i]
+            local m_best = nil
+            if budget >= 2 and p.kind == "pipe" and i < n and not p.jump then
+                local d = p.dir
+                local m = i
+                while m + 1 <= n - 1 and m + 1 - i <= max_jump do
+                    local q = placements[m + 1]
+                    if q.kind ~= "pipe" or q.jump or q.dir ~= d then break end
+                    m = m + 1
+                end
+                -- the exit's next tile must carry on in the same direction
+                while m > i do
+                    local after = placements[m + 1]
+                    if after and not after.jump and after.dir == d and m - i >= 3 then break end
+                    m = m - 1
+                end
+                local clear = true
+                if o.has_underground then
+                    for t = i + 1, m - 1 do
+                        if o.has_underground(placements[t].position) then clear = false; break end
+                    end
+                end
+                if m - i >= 3 and clear then m_best = m end
+            end
+            if m_best then
+                out[#out + 1] = {kind = "in", position = p.position, dir = p.dir}
+                out[#out + 1] = {kind = "out", position = placements[m_best].position, dir = p.dir}
+                budget = budget - 2
+                i = m_best + 1
+            else
+                out[#out + 1] = p
+                i = i + 1
+            end
+        end
+        placements = out
+    end
+    local pipes, undergrounds = 0, 0
+    for _, p in ipairs(placements) do
+        if p.kind == "pipe" then pipes = pipes + 1 else undergrounds = undergrounds + 1 end
+    end
+    return {placements = placements, pipes = pipes, undergrounds = undergrounds, expanded = expanded}
+end
+
+local function is_pipe_route(connection_types)
+    if (default_connect_types[connection_types[1]] or connection_types[1]) ~= "pipe" then return false end
+    for _, t in ipairs(connection_types) do
+        if t == "pipe" then return true end
+    end
+    return false
+end
+
+local function connect_pipes_by_tiles(player_index, source_x, source_y, target_x, target_y, connection_types, dry_run)
+    local player = storage.agent_characters[player_index]
+    local surface = player.surface
+    local function tile(x, y) return {x = math.floor(x) + 0.5, y = math.floor(y) + 0.5} end
+    local start, goal = tile(source_x, source_y), tile(target_x, target_y)
+    local underground = nil
+    for _, t in ipairs(connection_types) do
+        if t == "pipe-to-ground" then underground = t end
+    end
+    local inventory = player.get_inventory(defines.inventory.character_main)
+    local function held(name) return inventory and inventory.get_item_count(name) or 0 end
+
+    local near_ends = function(p)
+        return (math.abs(p.x - start.x) + math.abs(p.y - start.y) <= 1)
+            or (math.abs(p.x - goal.x) + math.abs(p.y - goal.y) <= 1)
+    end
+    local function segment_of(e)
+        local ok, id = pcall(function() return e.fluidbox.get_fluid_segment_id(1) end)
+        if ok then return id end
+        return nil
+    end
+    local own_segments = {}
+    for _, p in pairs({start, goal}) do
+        for _, e in pairs(surface.find_entities_filtered{name = {"pipe", "pipe-to-ground"}, position = p, radius = 1.1}) do
+            local id = segment_of(e)
+            if id then own_segments[id] = true end
+        end
+    end
+    local plan, why = storage.utils.plan_pipe_route{
+        start = start,
+        goal = goal,
+        free = function(p)
+            if not buildable_at(surface, player.force, "pipe", p, 0.5) then return false end
+            if near_ends(p) then return true end
+            -- a tile beside a pipe of another fluid system would join the two
+            for _, v in pairs(DIRS) do
+                local other = surface.find_entity("pipe", {x = p.x + v[1], y = p.y + v[2]})
+                if other then
+                    local id = segment_of(other)
+                    if not (id and own_segments[id]) then return false end
+                end
+            end
+            return true
+        end,
+        has_underground = function(p)
+            return #surface.find_entities_filtered{name = "pipe-to-ground", position = p, radius = 0.4} > 0
+        end,
+        max_jump = underground and storage.utils.underground_pipe_reach(underground) - 1 or 0,
+        underground_budget = underground and held(underground) or 0,
+    }
+    if not plan then
+        error("\"No pipe route from (" .. start.x .. ", " .. start.y .. ") to (" .. goal.x .. ", " .. goal.y .. "): " .. why .. "\"", 0)
+    end
+    if not dry_run then
+        local short = {}
+        if held("pipe") < plan.pipes then short[#short + 1] = "pipe " .. plan.pipes .. " (you hold " .. held("pipe") .. ")" end
+        if plan.undergrounds > 0 and held(underground) < plan.undergrounds then
+            short[#short + 1] = underground .. " " .. plan.undergrounds .. " (you hold " .. held(underground) .. ")"
+        end
+        if #short > 0 then
+            error("\"You do not have enough items in your inventory to complete this connection. Required: "
+                .. table.concat(short, ", ") .. "\"", 0)
+        end
+    end
+    local serialized_entities = {}
+    local counter_state = {place_counter = 0}
+    for _, p in ipairs(plan.placements) do
+        if p.kind == "pipe" then
+            place_at_position(player, "pipe", p.position, 0, serialized_entities, dry_run, counter_state, false)
+        else
+            local d = p.kind == "in" and p.dir or (p.dir + 8) % 16
+            place_at_position(player, underground, p.position, storage.utils.get_entity_direction(underground, d),
+                serialized_entities, dry_run, counter_state, p.kind == "out")
+        end
+    end
+    return {entities = serialized_entities, connected = not dry_run,
+            number_of_entities = counter_state.place_counter, planned = counter_state.planned}
+end
+
 local function connect_entities(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, dry_run)
     local counter_state = {place_counter = 0}
     local player = storage.agent_characters[player_index]
@@ -869,12 +1482,8 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
     local is_electric_pole = wire_reach[default_connection_type] ~= nil
 
 
-    if not storage.connect_dry_run_only then
-        for i = 1, #path-1, step_size do
-            storage.elapsed_ticks = storage.elapsed_ticks + storage.utils.calculate_movement_ticks(player, last_position, path[i].position)
-            last_position = path[i].position
-        end
-    end
+    -- (No walking time is counted here: the client walks the character along the
+    -- route with move_to, in game time, before the real call builds it.)
 
     local serialized_entities = {}
 
@@ -937,7 +1546,6 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
                 break
             end
 
-            local MAX_INDEX_PLACEMENT = 200
             -- Place regular entities up to the section
             while current_index < section.start_index do
                 local current_pos = path[current_index].position
@@ -948,9 +1556,6 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
                         storage.utils.get_entity_direction(default_connection_type, dir),
                         serialized_entities, dry_run, counter_state, false)
                 current_index = current_index + 1
-                if current_index > MAX_INDEX_PLACEMENT then
-                    break
-                end
             end
 
             -- Place initial surface entity for direction change
@@ -1673,7 +2278,8 @@ end
 -- Modify the connect_entities function to include validation
 local function connect_entities_with_validation(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, dry_run)
     local path = storage.paths[path_handle]
-    if path == nil then
+    local pole_type = wire_reach[connection_types[1]] and connection_types[1] or nil
+    if path == nil and not pole_type then
         error("No path found")
     end
     
@@ -1791,6 +2397,12 @@ local function connect_entities_with_validation(player_index, source_x, source_y
         end
     end
 
+    -- Poles: a near-straight line at full wire reach (the game's path, if any, only guides it)
+    if pole_type then
+        return connect_poles(storage.agent_characters[player_index], source_x, source_y, target_x, target_y,
+                             path, pole_type, dry_run)
+    end
+
     -- If validation passes or it's not a belt, proceed with normal connection
     return connect_entities(player_index, source_x, source_y, target_x, target_y,
                           path_handle, connection_types, dry_run)
@@ -1798,40 +2410,92 @@ end
 
 
 -- Using the new shortest_path function.
+-- Items the route places, per name (from the dry pass)
+local function planned_counts(result)
+    local counts = {}
+    for _, p in pairs((result and result.planned) or {}) do
+        local name = tostring(p.name):gsub('"', '')
+        counts[name] = (counts[name] or 0) + 1
+    end
+    return counts
+end
+
 storage.actions.connect_entities = function(player_index, source_x, source_y, target_x, target_y, path_handle, connection_type_string, dry_run, number_of_connection_entities)
 
     local connection_types = {}
     for item in string.gmatch(connection_type_string, "([^,]+)") do
-        -- game.print(item)
         table.insert(connection_types, item)
     end
-    if dry_run then
-        -- A dry run the caller asked for: nothing is placed, no walking time is
-        -- counted, and the character (which the checks step aside) is put back
-        -- where it was, also when the route fails.
-        local player = storage.agent_characters[player_index]
-        local home = player and player.valid and {x = player.position.x, y = player.position.y}
-        storage.connect_dry_run_only = true
-        local ok, answer = pcall(connect_entities_with_validation, player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, true)
-        storage.connect_dry_run_only = nil
-        if home and player.valid then player.teleport(home) end
+    local player = storage.agent_characters[player_index]
+    -- The checks below step the character aside; it is always put back where it
+    -- stood (the client walks it along the route, in game time, before building).
+    local home = player and player.valid and {x = player.position.x, y = player.position.y}
+    local function go_home()
+        if home and player.valid and (player.position.x ~= home.x or player.position.y ~= home.y) then
+            local spot = player.surface.find_non_colliding_position("character", home, 5, 0.1) or home
+            player.teleport(spot)
+        end
+    end
+
+    -- One pass. A pipe route the game's walking path cannot give (no path, a path
+    -- over cliffs, a timed-out search) is searched tile by tile instead.
+    local function pass(dry, by_tiles)
+        if by_tiles then
+            return connect_pipes_by_tiles(player_index, source_x, source_y, target_x, target_y, connection_types, dry), true
+        end
+        local ok, answer = pcall(connect_entities_with_validation, player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, dry)
+        if ok then return answer, false end
+        if is_pipe_route(connection_types) then
+            local ok2, answer2 = pcall(connect_pipes_by_tiles, player_index, source_x, source_y, target_x, target_y, connection_types, dry)
+            if ok2 then return answer2, true end
+            local first = tostring(answer):gsub('^"', ''):gsub('"$', '')
+            local second = tostring(answer2):gsub('^"', ''):gsub('"$', '')
+            error("\"" .. first .. " A tile-by-tile search found no route either: " .. second .. "\"", 0)
+        end
+        error(answer, 0)
+    end
+
+    storage.connect_dry_run_only = true
+    local ok, answer, by_tiles = pcall(pass, true, false)
+    storage.connect_dry_run_only = nil
+    if not ok or dry_run then
+        go_home()
         if not ok then error(answer, 0) end
         return answer
     end
 
-    --First do a dry run
-    local result = connect_entities_with_validation(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, true)
-    -- then do an actual run if dry run is false
-    if not dry_run then
-        -- Check if the player has enough entities in their inventory
-        local required_count = result.number_of_entities
-        -- game.print("Required count: " .. required_count)
-        -- game.print("Available count: " .. number_of_connection_entities)
-        if number_of_connection_entities < required_count then
-            error("\"You do not have enough " .. connection_type_string .. " in you inventory to complete this connection. Required number - " .. required_count .. ", Available in inventory - " .. number_of_connection_entities.."\"")
+    -- Every item the route places must be in the inventory, per item
+    local inventory = player.get_inventory(defines.inventory.character_main)
+    local short = {}
+    for name, count in pairs(planned_counts(answer)) do
+        local have = inventory and inventory.get_item_count(name) or 0
+        if have < count then
+            table.insert(short, name .. ": required " .. count .. ", in inventory " .. have)
         end
-        result = connect_entities_with_validation(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, false)
+    end
+    if #short > 0 then
+        go_home()
+        table.sort(short)
+        error("\"You do not have enough items in your inventory to complete this connection (" .. table.concat(short, "; ") .. "). Nothing was built.\"", 0)
     end
 
+    local ok2, result = pcall(pass, false, by_tiles)
+    go_home()
+    if not ok2 then error(result, 0) end
+
+    -- Every tile the dry pass planned must now hold its entity (no gaps)
+    if not wire_reach[connection_types[1]] then
+        local missing = {}
+        for _, p in pairs(answer.planned or {}) do
+            local name = tostring(p.name):gsub('"', '')
+            if #player.surface.find_entities_filtered{name = name, position = {x = p.x, y = p.y}, radius = 0.5} == 0 then
+                table.insert(missing, name .. " at (" .. p.x .. ", " .. p.y .. ")")
+            end
+        end
+        if #missing > 0 then
+            error("\"The connection was built with gaps: " .. #missing .. " planned entities are missing ("
+                .. table.concat(missing, ", ", 1, math.min(#missing, 5)) .. ")\"", 0)
+        end
+    end
     return result
 end

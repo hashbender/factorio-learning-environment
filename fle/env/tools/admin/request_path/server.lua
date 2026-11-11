@@ -61,8 +61,10 @@ storage.actions.request_path = function(player_index, start_x, start_y, goal_x, 
 
     -- Add temporary collision entities
     local clearance_entities = {}
+    -- avoid_entity steps the character off the goal; it is put back once the goal is chosen
+    local home = {x = player.position.x, y = player.position.y}
     storage.utils.avoid_entity(player_index, "iron-chest", {y = goal_y, x = goal_x})
-    
+
     local goal_position = player.surface.find_non_colliding_position(
         "iron-chest",
         {y = goal_y, x = goal_x},
@@ -70,6 +72,7 @@ storage.actions.request_path = function(player_index, start_x, start_y, goal_x, 
         0.5,
         true
     )
+    player.teleport(home)
     if not goal_position then
         -- Goal may be deep in water/obstacles; use raw coordinates and let the
         -- pathfinder try with its radius parameter to get as close as possible

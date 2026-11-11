@@ -147,6 +147,7 @@ def _construct_group(
     elif prototype in (
         Prototype.SmallElectricPole,
         Prototype.BigElectricPole,
+        Prototype.Substation,
         Prototype.MediumElectricPole,
     ):
         mean_x = mean([pole.position.x for pole in entities])
@@ -706,6 +707,7 @@ def agglomerate_groupable_entities(
     if prototype in (
         Prototype.SmallElectricPole,
         Prototype.BigElectricPole,
+        Prototype.Substation,
         Prototype.MediumElectricPole,
     ):
         electricity_ids = {}

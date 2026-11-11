@@ -172,6 +172,8 @@ class PowerConnectionResolver(Resolver):
                 )
                 for pole in source.poles:
                     positions.append((pole.position, target_pos))
+            # nearest pole first: the line starts from the pole closest to the target
+            positions.sort(key=lambda pair: pair[0].distance(pair[1]))
             return positions
         else:
             if isinstance(source, Entity) and isinstance(target, Entity):

@@ -82,7 +82,25 @@ local function add_clearance_entities(surface, force, region, start_pos, end_pos
     rendering.draw_circle{only_in_alt_mode=true, width = 1, color = {r = 0, g = 1, b = 0}, surface = surface, radius = 0.5, filled = false, target = end_pos, time_to_live = 60000}
 
     -- Collect positions from pipes
+    -- Pipes of the fluid systems the route starts or ends on are not fenced off:
+    -- running beside them joins the same fluid, and fencing them forces detours.
+    local function segment_of(e)
+        local ok, id = pcall(function() return e.fluidbox.get_fluid_segment_id(1) end)
+        if ok then return id end
+        return nil
+    end
+    local own_segments = {}
+    for _, p in pairs({start_pos, end_pos}) do
+        local near = surface.find_entities_filtered{name = {"pipe", "pipe-to-ground"}, force = force, position = p, radius = 1.1}
+        for _, e in pairs(near) do
+            local id = segment_of(e)
+            if id then own_segments[id] = true end
+        end
+    end
+
     for _, pipe in pairs(entities.pipes) do
+      local id = segment_of(pipe)
+      if not (id and own_segments[id]) then
         local pipe_positions = {
             {x = pipe.position.x + 1, y = pipe.position.y},
             {x = pipe.position.x - 1, y = pipe.position.y},
@@ -94,6 +112,7 @@ local function add_clearance_entities(surface, force, region, start_pos, end_pos
                 table.insert(all_positions, pos)
             end
         end
+      end
     end
 
     -- Collect positions from boilers
