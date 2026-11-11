@@ -858,6 +858,76 @@ class PlacementCheck(BaseModel):
     __str__ = __repr__
 
 
+class LayoutEntry(BaseModel):
+    """One entity of a place_layout call. status: placed, already built, would place (passed the
+    check, not built), blocked, invalid, failed or not placed; reason says why it was not placed."""
+
+    index: int
+    copy: int = 1
+    name: str
+    position: Position
+    direction: Optional[Direction] = None
+    status: str
+    reason: Optional[str] = None
+
+    def __repr__(self) -> str:
+        why = f": {self.reason}" if self.reason else ""
+        return f"#{self.index} {self.name} at ({self.position.x}, {self.position.y}) {self.status}{why}"
+
+    __str__ = __repr__
+
+
+class LayoutResult(BaseModel):
+    """What place_layout did (or, with dry_run, would do). True in an `if` when ok."""
+
+    ok: bool
+    dry_run: bool = False
+    total: int = 0
+    placed: int = 0
+    already_built: int = 0
+    entries: List[LayoutEntry] = []
+    problems: List[LayoutEntry] = []
+    warnings: List[str] = []
+    required: Dict[str, int] = {}
+    in_inventory: Dict[str, int] = {}
+    missing: Dict[str, int] = {}
+    stops: List[Position] = []
+    walk_tiles_estimate: float = 0.0
+    walk_seconds_estimate: float = 0.0
+    ticks: int = 0
+    seconds: float = 0.0
+    character_position: Optional[Position] = None
+    reason: Optional[str] = None
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+    def __repr__(self) -> str:
+        head = (
+            f"LayoutResult(ok={self.ok}{', dry_run=True' if self.dry_run else ''}, "
+            f"total={self.total}, placed={self.placed}, already_built={self.already_built}, "
+            f"stops={len(self.stops)}"
+        )
+        if self.dry_run:
+            head += f", walk_seconds_estimate={self.walk_seconds_estimate}"
+        else:
+            head += f", ticks={self.ticks}"
+        if self.missing:
+            head += f", missing={self.missing}"
+        if self.reason:
+            head += f", reason={self.reason!r}"
+        lines = [head + ")"]
+        for p in self.problems[:10]:
+            lines.append(f"  {p!r}")
+        if len(self.problems) > 10:
+            lines.append(f"  ... and {len(self.problems) - 10} more in .problems")
+        for w in self.warnings[:3]:
+            lines.append(f"  warning: {w}")
+        return "\n".join(lines)
+
+    __str__ = __repr__
+
+
 class InserterPreview(BaseModel):
     """What an inserter would take from and drop into if placed at `position`
     facing `direction` (preview_inserter). pickup_target / drop_target: the
