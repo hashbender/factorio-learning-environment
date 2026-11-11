@@ -148,8 +148,19 @@ class GetEntities(Tool):
                 try:
                     if "inventory" in entity_data:
                         if isinstance(entity_data["inventory"], list):
-                            for inv in entity_data["inventory"]:
-                                entity_data["inventory"] += inv
+                            # Never extend the list being iterated: that loops
+                            # forever (and grows memory) for any non-empty list.
+                            # A list of per-slot dicts is merged into one dict.
+                            _parts = list(entity_data["inventory"])
+                            if _parts and all(isinstance(_p, dict) for _p in _parts):
+                                _merged = {}
+                                for _p in _parts:
+                                    for _k, _v in _p.items():
+                                        _merged[_k] = (_merged.get(_k, 0) + _v) if isinstance(_v, (int, float)) else _v
+                                entity_data["inventory"] = _merged
+                            else:
+                                for inv in _parts:
+                                    entity_data["inventory"] += inv
                         else:
                             inventory_data = {
                                 k: v
