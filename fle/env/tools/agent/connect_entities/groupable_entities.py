@@ -192,7 +192,9 @@ def consolidate_underground_belts(belt_groups):
 
         for i, belt in enumerate(group.belts):
             if isinstance(belt, UndergroundBelt):
-                if belt.connected_to:
+                # The partner can be outside this group (e.g. grouped apart, or out of
+                # the query radius); then this end stays a single, unconsolidated belt.
+                if belt.connected_to and belt.connected_to in underground_pairs:
                     underground_pairs[belt.connected_to]["exit"] = belt
                     underground_pairs[belt.id]["entrance"] = belt
 
@@ -310,6 +312,16 @@ def consolidate_underground_belts(belt_groups):
     ] + [group for group in belt_groups if not isinstance(group, BeltGroup)]
 
 
+# Factorio underground-belt max_distance (entrance to exit, in tiles) per prototype.
+_UNDERGROUND_MAX_DISTANCE = {
+    "underground-belt": 5,
+    "fast-underground-belt": 7,
+    "express-underground-belt": 9,
+    "turbo-underground-belt": 11,
+}
+_UNDERGROUND_MAX_DISTANCE_DEFAULT = 5
+
+
 def _round_pos(x, y, precision=2):
     """Round position coordinates to avoid floating point comparison issues."""
     return (round(x, precision), round(y, precision))
@@ -344,8 +356,27 @@ def construct_belt_groups(
         if belt.is_terminus:
             terminal_belts.append(belt)
 
+    belts_by_id = {
+        belt.id: belt for belt in belts if getattr(belt, "id", None) is not None
+    }
+
+    def partner_position(belt):
+        """Position of the underground's game-reported partner, if it is in this set."""
+        partner = belts_by_id.get(getattr(belt, "connected_to", None))
+        if isinstance(partner, UndergroundBelt) and partner.is_input != belt.is_input:
+            return _round_pos(partner.position.x, partner.position.y)
+        return None
+
     def find_matching_exit(entrance_pos, direction):
         entrance_x, entrance_y = entrance_pos
+        entrance = belts_by_position.get(entrance_pos)
+        if entrance is not None:
+            partner = partner_position(entrance)
+            if partner is not None:
+                return partner
+        max_range = _UNDERGROUND_MAX_DISTANCE.get(
+            getattr(entrance, "name", None), _UNDERGROUND_MAX_DISTANCE_DEFAULT
+        )
         closest_exit = None
         min_distance = float("inf")
 
@@ -356,7 +387,6 @@ def construct_belt_groups(
 
             dx = exit_x - entrance_x
             dy = exit_y - entrance_y
-            max_range = 4  # Default underground belt range
 
             # Check if they're in line and in the correct direction
             match direction.value:
@@ -405,6 +435,9 @@ def construct_belt_groups(
 
         # If this is an underground exit, find its matching entrance
         if isinstance(belt, UndergroundBelt) and not belt.is_input:
+            partner = partner_position(belt)
+            if partner is not None:
+                return partner
             for entrance_pos, direction in underground_entrances:
                 if find_matching_exit(entrance_pos, direction) == pos:
                     return entrance_pos
