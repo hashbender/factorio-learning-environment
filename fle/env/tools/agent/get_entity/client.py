@@ -14,9 +14,12 @@ class GetEntity(Tool):
 
     def __call__(self, entity: Prototype, position: Position) -> Entity:
         """
-        Retrieve a given entity object at position (x, y) if it exists on the world.
+        Get the entity of the given prototype that occupies position (x, y).
+        The position must lie on one of the entity's tiles (any tile of a multi-tile entity works);
+        a neighbouring entity is never returned. Raises an error naming up to 3 of the nearest
+        entities of that prototype when none occupies the position.
         :param entity: Entity prototype to get, e.g Prototype.StoneFurnace
-        :param position: Position where to look
+        :param position: Position on one of the entity's tiles
         :return: Entity object
         """
         assert isinstance(entity, Prototype)
@@ -45,28 +48,30 @@ class GetEntity(Tool):
             )
             return entities[0] if len(entities) > 0 else None
         else:
+            x, y = self.get_position(position)
+            name, metaclass = entity.value
+            while isinstance(metaclass, tuple):
+                metaclass = metaclass[1]
+
+            sleep(0.05)
+            response, elapsed = self.execute(self.player_index, name, x, y)
+
+            if isinstance(response, str):
+                # The server's reason: no entity of this prototype occupies the
+                # position (with the nearest ones), or an unknown prototype.
+                raise Exception(self.get_error_message(response))
+            if response is None or response == {}:
+                raise Exception(
+                    f"Could not get {name} at position ({x}, {y}): no response from the game"
+                )
+
             try:
-                x, y = self.get_position(position)
-                name, metaclass = entity.value
-                while isinstance(metaclass, tuple):
-                    metaclass = metaclass[1]
-
-                sleep(0.05)
-                response, elapsed = self.execute(self.player_index, name, x, y)
-
-                if response is None or response == {} or isinstance(response, str):
-                    # No entity found at position - return None instead of raising
-                    return None
-
                 cleaned_response = self.clean_response(response)
-                try:
-                    object = metaclass(prototype=entity.name, **cleaned_response)
-                except Exception as e:
-                    raise Exception(
-                        f"Could not create {name} object from response (get entity): {cleaned_response}",
-                        e,
-                    )
-
-                return object
+                object = metaclass(prototype=entity.name, **cleaned_response)
             except Exception as e:
-                raise Exception(f"Could not get {entity} at position {position}", e)
+                raise Exception(
+                    f"Could not get {name} at position ({x}, {y}): could not create the "
+                    f"{name} object from the response ({e})"
+                ) from e
+
+            return object

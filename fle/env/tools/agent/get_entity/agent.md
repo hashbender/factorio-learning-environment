@@ -39,6 +39,13 @@ belts = connect_entities(
 )
 ```
 
+**Which entity is returned**
+
+- `get_entity(prototype, position)` returns the entity of that prototype whose tiles contain `position`: its centre (`entity.position`) or any point on any of its tiles. It never returns a neighbouring entity.
+- Tile (x, y) covers x <= px < x + 1 and y <= py < y + 1. A position exactly on the border between two adjacent entities of the same prototype belongs to the one with the larger x (or larger y). A position on an entity's outer border counts for that entity when no other entity of the prototype covers it.
+- When no entity of that prototype covers the position, get_entity raises an error that lists up to 3 entities of that prototype within 30 tiles, nearest first (distance from the position to each entity's centre), e.g. `Could not get assembling-machine-1 at position (7.5, 1.5): no assembling-machine-1 covers that position. Nearest: assembling-machine-1 at (4.5, 1.5) 3.0 tiles away; assembling-machine-1 at (1.5, 1.5) 6.0 tiles away.`
+- `Prototype.BeltGroup`, `Prototype.PipeGroup` and `Prototype.ElectricityGroup` are different: get_entity returns a group that get_entities finds around the position, or None when there is none.
+
 **Outdated variables**
 
 - Regularly update your variables using entity = get_entity(Prototype.X, entity.position)

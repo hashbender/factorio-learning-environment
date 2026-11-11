@@ -27,6 +27,8 @@ The function returns a list of Entity objects that match the specified criteria.
 
 - If no entities are specified, returns all entities within radius
 - Returns empty list if no matching entities are found
+- The search area is a square centred on `position` with sides of 2 x `radius` (not a circle). An entity is returned when its collision box (slightly smaller than its tiles) overlaps that square, so a multi-tile entity whose centre lies outside the square can be returned, and entities next to `position` are returned too. Results are not sorted by distance.
+- Only entities of your own force are returned.
 
 ## Examples
 

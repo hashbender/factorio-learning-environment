@@ -1,57 +1,91 @@
 storage.actions.get_entity = function(player_index, entity, x, y)
     -- Ensure we have a valid character, recreating if necessary
     local player = storage.utils.ensure_valid_character(player_index)
-    local position = {x=x, y=y}
+    local position = {x = x, y = y}
 
     if prototypes.entity[entity] == nil then
         local name = entity:gsub(" ", "_"):gsub("-", "_")
         error(name .. " isnt something that exists. Did you make a typo? ")
     end
 
-    local prototype = prototypes.entity[entity]
-    --local collision_box = prototype.collision_box
-    local width = 1--math.abs(collision_box.right_bottom.x - collision_box.left_top.x)
-    local height = 1--math.abs(collision_box.right_bottom.y - collision_box.left_top.y)
-
-    -- game.print("Width: " .. width)
-    -- game.print("Height: " .. height)
-
-    local target_area = {
-        {position.x - width , position.y - height },
-        {position.x + width , position.y + height }
-    }
-    --local entities = player.surface.find_entities_filtered{area = target_area} --, name = entity}
-    local entities = player.surface.find_entities_filtered{area = target_area, name = entity}
-    -- game.print("Number of entities found: " .. #entities)
-
-    local closest_distance = math.huge
-    local closest_entity = nil
-
-    -- Only entities whose tile footprint contains the position: the search area is
-    -- a tile wider than the position on each side, so it also holds neighbours.
-    local function covers_position(e)
+    -- The tiles an entity occupies: its bounding box widened to whole tiles
+    -- (collision boxes sit a little inside the tile edges).
+    local function footprint(e)
         local box = e.bounding_box
-        return position.x >= math.floor(box.left_top.x) and position.x <= math.ceil(box.right_bottom.x)
-            and position.y >= math.floor(box.left_top.y) and position.y <= math.ceil(box.right_bottom.y)
+        return math.floor(box.left_top.x), math.floor(box.left_top.y),
+            math.ceil(box.right_bottom.x), math.ceil(box.right_bottom.y)
     end
 
-    for _, building in ipairs(entities) do
-        if building.name ~= 'character' and covers_position(building) then
-            local distance = ((position.x - building.position.x) ^ 2 +
-                            (position.y - building.position.y) ^ 2) ^ 0.5
-            if distance < closest_distance then
-                closest_distance = distance
-                closest_entity = building
+    -- inside: the position is on one of the entity's tiles; a tile (x, y) spans
+    -- [x, x + 1) x [y, y + 1), so a position on the edge shared by two adjacent
+    -- entities belongs to the one on its right / below.
+    -- on_edge: the position is on the entity's tiles or on their outer edge.
+    local function inside(e)
+        local l, t, r, b = footprint(e)
+        return position.x >= l and position.x < r and position.y >= t and position.y < b
+    end
+    local function on_edge(e)
+        local l, t, r, b = footprint(e)
+        return position.x >= l and position.x <= r and position.y >= t and position.y <= b
+    end
+
+    local function distance(e)
+        return ((position.x - e.position.x) ^ 2 + (position.y - e.position.y) ^ 2) ^ 0.5
+    end
+
+    local function closest(list, accept)
+        local best, best_distance = nil, math.huge
+        for _, e in ipairs(list) do
+            if e.valid and e.name ~= 'character' and accept(e) then
+                local d = distance(e)
+                if d < best_distance then
+                    best, best_distance = e, d
+                end
             end
         end
+        return best
     end
 
-    if closest_entity ~= nil then
-        local entity = closest_entity  -- get the first entity of the specified type in the area
-        local serialized = storage.utils.serialize_entity(entity)
-        --local entity_json = game.table_to_json(serialized)-- game.table_to_json(entity
-        return serialized
-    else
-        error("\"No entity of type " .. entity .. " found at the specified position.\"")
+    -- An area one tile wider than the position on each side holds every entity
+    -- whose footprint contains the position (and possibly its neighbours).
+    local entities = player.surface.find_entities_filtered{
+        area = {{position.x - 1, position.y - 1}, {position.x + 1, position.y + 1}},
+        name = entity
+    }
+
+    local found = closest(entities, inside) or closest(entities, on_edge)
+    if found ~= nil then
+        return storage.utils.serialize_entity(found)
     end
+
+    -- Nothing of this type covers the position: name the nearest ones.
+    local search = 30
+    local nearby = player.surface.find_entities_filtered{
+        area = {{position.x - search, position.y - search}, {position.x + search, position.y + search}},
+        name = entity
+    }
+    local candidates = {}
+    for _, e in ipairs(nearby) do
+        if e.valid and e.name ~= 'character' then
+            table.insert(candidates, {entity = e, distance = distance(e)})
+        end
+    end
+    table.sort(candidates, function(a, b) return a.distance < b.distance end)
+
+    local function fmt(v) return string.format("%.1f", v) end
+    local where = "(" .. fmt(position.x) .. ", " .. fmt(position.y) .. ")"
+    local message = "Could not get " .. entity .. " at position " .. where .. ": no " .. entity ..
+        " covers that position."
+    if #candidates == 0 then
+        message = message .. " There is no " .. entity .. " within " .. search .. " tiles."
+    else
+        local parts = {}
+        for i = 1, math.min(3, #candidates) do
+            local c = candidates[i]
+            table.insert(parts, c.entity.name .. " at (" .. fmt(c.entity.position.x) .. ", " ..
+                fmt(c.entity.position.y) .. ") " .. fmt(c.distance) .. " tiles away")
+        end
+        message = message .. " Nearest: " .. table.concat(parts, "; ") .. "."
+    end
+    error("\"" .. message .. "\"")
 end
