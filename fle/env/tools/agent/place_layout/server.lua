@@ -85,36 +85,88 @@ end
 
 local function key(tx, ty) return tx .. "," .. ty end
 
--- Fluids next to a pipe-like entity the game refused with nothing in the way: the game does not build a
--- fluid entity that would connect two different fluids. nil, or text naming the fluids and where they are.
+-- Fluids the entity would connect, for a pipe-like entity the game refused with nothing in the way: the game does
+-- not build a fluid entity that would connect two different fluids. Only the fluid boxes it would really join count:
+-- a neighbour's connection that faces one of the new entity's own connection points, and for a pipe-to-ground the
+-- one pipe-to-ground its underground connection would pair with. nil, or text naming the fluids and where they are.
 local MIX_TYPES = {["pipe"] = true, ["pipe-to-ground"] = true, ["storage-tank"] = true, ["pump"] = true}
-local function fluid_mix(surface, prototype, left, top, right, bottom, direction)
-    if not MIX_TYPES[prototype.type] then return nil end
-    local seen, names = {}, {}
-    local function add(other)
-        if not (other.valid and other.fluidbox) then return end
-        for i = 1, #other.fluidbox do
-            local f = other.fluidbox[i]
-            if f and f.name and not seen[f.name] then
-                seen[f.name] = other.name .. " at (" .. other.position.x .. ", " .. other.position.y .. ")"
-                table.insert(names, f.name)
-            end
+local DIR_VEC = {[0] = {0, -1}, [4] = {1, 0}, [8] = {0, 1}, [12] = {-1, 0}}
+local function tile_of(p) return math.floor(p.x), math.floor(p.y) end
+local function box_fluid(other, k)
+    local f = other.fluidbox[k]
+    if f and f.name then return f.name end
+    local ok, seg = pcall(other.fluidbox.get_fluid_segment_contents, k)
+    if ok and type(seg) == "table" then
+        for name, amount in pairs(seg) do
+            if amount and amount > 0 then return name end
         end
     end
-    -- the four sides (not the corners: fluid boxes never connect diagonally)
-    local ring = {{left - 1 + 0.01, top - 1 + 0.01}, {right + 1 + 0.99, bottom + 1 + 0.99}}
-    for _, other in pairs(surface.find_entities_filtered{area = ring}) do
-        local p = other.position
-        local beside_x = p.x >= left and p.x <= right + 1
-        local beside_y = p.y >= top and p.y <= bottom + 1
-        if beside_x or beside_y then add(other) end
+    return nil
+end
+local function fluid_mix(surface, prototype, position, direction)
+    if not MIX_TYPES[prototype.type] then return nil end
+    local seen, names = {}, {}
+    local function add(other, k)
+        local name = box_fluid(other, k)
+        if name and not seen[name] then
+            seen[name] = other.name .. " at (" .. other.position.x .. ", " .. other.position.y .. ")"
+            table.insert(names, name)
+        end
     end
-    -- a pipe-to-ground also connects underground along its axis
-    if prototype.type == "pipe-to-ground" then
-        local vertical = direction == defines.direction.north or direction == defines.direction.south
-        local cx, cy = left + 0.5, top + 0.5
-        local line = vertical and {{cx - 0.4, cy - 11}, {cx + 0.4, cy + 11}} or {{cx - 11, cy - 0.4}, {cx + 11, cy + 0.4}}
-        for _, other in pairs(surface.find_entities_filtered{area = line, type = "pipe-to-ground"}) do add(other) end
+    local d = direction or 0
+    for _, fb in pairs(prototype.fluidbox_prototypes or {}) do
+        for _, c in pairs(fb.pipe_connections or {}) do
+            local off = c.positions and c.positions[d / 4 + 1]
+            local cdir = ((c.direction or 0) + d) % 16
+            local v = DIR_VEC[cdir]
+            if off and v then
+                local ox, oy = math.floor(position.x + off.x), math.floor(position.y + off.y)
+                if c.connection_type == "normal" then
+                    -- a neighbour connects when one of its own connection points sits on the tile this connection
+                    -- faces and points back at this connection's tile
+                    local tx, ty = ox + v[1], oy + v[2]
+                    for _, other in pairs(surface.find_entities_filtered{area = {{tx + 0.1, ty + 0.1}, {tx + 0.9, ty + 0.9}}}) do
+                        if other.valid and other.fluidbox then
+                            for k = 1, #other.fluidbox do
+                                local ok, conns = pcall(other.fluidbox.get_pipe_connections, k)
+                                for _, oc in pairs(ok and conns or {}) do
+                                    if oc.connection_type == "normal" and oc.position and oc.target_position then
+                                        local px, py = tile_of(oc.position)
+                                        local qx, qy = tile_of(oc.target_position)
+                                        if px == tx and py == ty and qx == ox and qy == oy then add(other, k) end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                elseif c.connection_type == "underground" then
+                    -- the first pipe-to-ground on this axis within reach decides: it pairs when its underground
+                    -- connection points back here; one facing away blocks (crossing ones and pipes do not)
+                    for step = 1, (c.max_underground_distance or 10) do
+                        local tx, ty = ox + v[1] * step, oy + v[2] * step
+                        local stop = false
+                        for _, other in pairs(surface.find_entities_filtered{area = {{tx + 0.1, ty + 0.1}, {tx + 0.9, ty + 0.9}},
+                                                                            type = "pipe-to-ground"}) do
+                            if other.valid and other.fluidbox then
+                                for k = 1, #other.fluidbox do
+                                    local ok, conns = pcall(other.fluidbox.get_pipe_connections, k)
+                                    for _, oc in pairs(ok and conns or {}) do
+                                        if oc.connection_type == "underground" and oc.position and oc.target_position then
+                                            local px, py = tile_of(oc.position)
+                                            local qx, qy = tile_of(oc.target_position)
+                                            local ax, ay = qx - px, qy - py
+                                            if ax == -v[1] and ay == -v[2] then add(other, k); stop = true
+                                            elseif ax == v[1] and ay == v[2] then stop = true end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if stop then break end
+                    end
+                end
+            end
+        end
     end
     if #names < 2 then return nil end
     local parts = {}
@@ -169,7 +221,7 @@ local function blockers(surface, prototype, e)
     if prototype.type == "offshore-pump" then
         return e.name .. " must be placed at the edge of water, facing the water"
     end
-    local mix = fluid_mix(surface, prototype, left, top, right, bottom, e.dir)
+    local mix = fluid_mix(surface, prototype, {x = e.x, y = e.y}, e.dir)
     if mix then return "the game does not allow " .. e.name .. " here: " .. mix end
     return "the game does not allow " .. e.name .. " here; no colliding entity or tile was found"
 end
