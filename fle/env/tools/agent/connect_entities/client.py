@@ -554,6 +554,7 @@ class ConnectEntities(Tool):
             )
 
         # Resolve positions into entities if they exist
+        given_source, given_target = source, target
         if isinstance(source, Position):
             source = self._resolve_position_into_entity(source)
         else:
@@ -569,7 +570,22 @@ class ConnectEntities(Tool):
         resolver = self.resolvers[self._get_connection_type(list(connection_types)[0])]
 
         # Resolve source and target positions
-        prioritised_list_of_position_pairs = resolver.resolve(source, target)
+        try:
+            prioritised_list_of_position_pairs = resolver.resolve(source, target)
+        except Exception as e:
+            taken = [
+                f"The Position ({given.x}, {given.y}) was taken as {found.name} at "
+                f"({found.position.x}, {found.position.y}): a Position within 1.5 tiles of an "
+                "entity's centre is resolved to that entity."
+                for given, found in ((given_source, source), (given_target, target))
+                if isinstance(given, Position)
+                and isinstance(found, Entity)
+                and getattr(found, "position", None) is not None
+                and not found.position.is_close(given, tolerance=0.01)
+            ]
+            if not taken:
+                raise
+            raise Exception(f"{e} {' '.join(taken)}") from e
 
         # Starting beside the end belt of an existing line only connects if that
         # belt is turned, so without allow_belt_changes the route starts in front of it
@@ -720,8 +736,8 @@ class ConnectEntities(Tool):
                 isinstance(target, (ChemicalPlant, OilRefinery))
                 or isinstance(source, (ChemicalPlant, OilRefinery))
             )
-            and not dry_run
         ):
+            # (a dry run tries it too, building nothing, so it answers as the real call)
             for source_pos, target_pos in prioritised_list_of_position_pairs:
                 try:
                     connection = self._create_modified_straight_connection(
@@ -734,7 +750,12 @@ class ConnectEntities(Tool):
                         target_entity=target
                         if isinstance(target, (Entity, EntityGroup))
                         else None,
+                        dry_run=dry_run,
                     )
+                    if dry_run:
+                        if connection:
+                            return connection
+                        continue
                     if connection and len(connection) > 0:
                         return connection[0]
                     else:
@@ -1298,8 +1319,10 @@ class ConnectEntities(Tool):
         connection_types: Set[Prototype],
         source_entity: Optional[Entity] = None,
         target_entity: Optional[Entity] = None,
+        dry_run: bool = False,
     ) -> List[Union[Entity, EntityGroup]]:
-        """Create a connection between two positions"""
+        """Create a connection between two positions (dry_run: build nothing and return
+        the plan as _create_connection's dry run does)"""
 
         # get the connection info
         # same as normal pathing in the _create_connection method
@@ -1327,6 +1350,7 @@ class ConnectEntities(Tool):
                 source_entity,
                 names_to_type,
                 metaclasses,
+                dry_run=dry_run,
             )
 
         finally:
@@ -1334,6 +1358,15 @@ class ConnectEntities(Tool):
 
         if result is None:
             return None
+
+        if dry_run:
+            return {
+                "number_of_entities_required": len(result.planned),
+                "number_of_entities_available": num_available,
+                "planned": result.planned,
+                "would_turn": None,
+                "note": None,
+            }
 
         # Process created entities
         # same as in normal pathing in the _create_connection method
@@ -1676,6 +1709,7 @@ class ConnectEntities(Tool):
         source_entity: Entity,
         names_to_type: Dict[str, Prototype],
         metaclasses: Dict[str, Entity],
+        dry_run: bool = False,
     ) -> PathResult:
         """
         Try to create a path between source and target with a straight line extension
@@ -1721,6 +1755,7 @@ class ConnectEntities(Tool):
                 target_run_idx,
                 num_available,
                 offset_sign=-1,
+                dry_run=dry_run,
             )
             # if failed, try the next distance for target extension
             if not target_straight_line_path_dict:
@@ -1735,6 +1770,7 @@ class ConnectEntities(Tool):
                     margin,
                     source_run_idx,
                     num_available,
+                    dry_run=dry_run,
                 )
                 if not source_straight_line_path_dict:
                     continue
@@ -1763,13 +1799,29 @@ class ConnectEntities(Tool):
                             connection_type_names_values,
                             num_available,
                             pathing_radius,
-                            False,
+                            dry_run,
                             False,
                         )
                     finally:
                         self._clear_collision_boxes()
                     # if success, we combine the 2 paths and return
                     # Else we pickup the straight line pipes and try again with a longer distance for source and target
+                    if inbetween_path.is_success and dry_run:
+                        # the plan: source run, the route between, target run
+                        planned = []
+                        for part in (
+                            source_straight_line_path_dict["path"],
+                            inbetween_path,
+                            target_straight_line_path_dict["path"],
+                        ):
+                            if part is not None:
+                                planned += part.planned
+                        inbetween_path.raw_response = dict(
+                            inbetween_path.raw_response,
+                            planned=planned,
+                            number_of_entities=len(planned),
+                        )
+                        return inbetween_path
                     if inbetween_path.is_success:
                         if source_straight_line_path_dict["path"]:
                             # add the underground pipes to the source_to_underground_start result
@@ -1790,8 +1842,8 @@ class ConnectEntities(Tool):
                         # return the final path
                         return inbetween_path
 
-                # pickup source straight line
-                if source_straight_line_path_dict["path"]:
+                # pickup source straight line (a dry run built nothing)
+                if source_straight_line_path_dict["path"] and not dry_run:
                     self.pickup_entities(
                         source_straight_line_path_dict["path"],
                         metaclasses,
@@ -1799,7 +1851,7 @@ class ConnectEntities(Tool):
                     )
 
             # pickup target straight line
-            if target_straight_line_path_dict["path"]:
+            if target_straight_line_path_dict["path"] and not dry_run:
                 self.pickup_entities(
                     target_straight_line_path_dict["path"], metaclasses, names_to_type
                 )
@@ -1834,6 +1886,7 @@ class ConnectEntities(Tool):
         run_idx: int,
         num_available: int,
         offset_sign: int = 1,
+        dry_run: bool = False,
     ):
         """
         Create a straight line extension for the input entity if it is a chemical plant or oil refinery
@@ -1852,8 +1905,9 @@ class ConnectEntities(Tool):
             base = offset_dict[entity_direction.name]
             offset = {"x": base["x"] * offset_sign, "y": base["y"] * offset_sign}
             try:
+                extra = {"dry_run": True} if dry_run else {}
                 output_dict = self.get_straight_line_path(
-                    input_pos, offset, margin, run_idx, num_available
+                    input_pos, offset, margin, run_idx, num_available, **extra
                 )
 
             except:
@@ -1873,6 +1927,7 @@ class ConnectEntities(Tool):
         margin: int,
         distance: int,
         num_available: int,
+        dry_run: bool = False,
     ):
         """
         Create the straight line path for the input starting position
@@ -1895,7 +1950,7 @@ class ConnectEntities(Tool):
                 ["pipe-to-ground"],
                 num_available,
                 0.5,
-                False,
+                dry_run,
                 True,
             )
         finally:

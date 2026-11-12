@@ -47,6 +47,90 @@ class FluidConnectionResolver(Resolver):
             entities = [e for e in entities if e.position != entity.position]
         return bool(entities)
 
+    def _occupants(self, pos: Position, entity=None) -> List[str]:
+        """Names of what stands on a port tile (as _is_blocked sees it)."""
+        try:
+            entities = self.get_entities(position=pos, radius=0.5)
+        except Exception:
+            return []
+        if entity is not None and isinstance(entity, Entity):
+            entities = [e for e in entities if e.position != entity.position]
+        names = []
+        for e in entities:
+            name = getattr(e, "name", None) or type(e).__name__
+            at = getattr(e, "position", None)
+            names.append(f"{name} at ({at.x}, {at.y})" if at is not None else str(name))
+        return names
+
+    @staticmethod
+    def _describe(thing) -> str:
+        if isinstance(thing, (Entity, PipeGroup)) and hasattr(thing, "position"):
+            name = getattr(thing, "name", None) or type(thing).__name__
+            return f"{name} at ({thing.position.x}, {thing.position.y})"
+        return f"{thing}"
+
+    def _no_connection_message(
+        self, source, target, source_fluid_positions, target_fluid_positions
+    ) -> str:
+        """Why no source/target port pair is usable: the facts found, one by one."""
+        source_location = self._describe(source)
+        target_location = self._describe(target)
+        target_fluids = [x.type for x in target_fluid_positions if x.type]
+        source_fluids = [x.type for x in source_fluid_positions if x.type]
+        intersection = set(target_fluids).intersection(set(source_fluids))
+        # the target expects fluids the source does not have (unchanged message)
+        if target_fluids and source_fluids and not intersection and "all" not in source_fluids:
+            return (
+                f"Fluids currently at source {source_location}: {source_fluids} not needed and "
+                f"expected by the target {target_location}. connect_entities pipes from a fluid "
+                "output of the source to a fluid input of the target."
+            )
+        facts = []
+        if not source_fluid_positions:
+            facts.append(f"{source_location} has no fluid output to connect from")
+        if not target_fluid_positions:
+            facts.append(f"{target_location} has no fluid input to connect to")
+        for point in target_fluid_positions:
+            pos = self._adjust_connection_point(
+                IndexedPosition(x=point.x, y=point.y, type=point.type), target
+            )
+            occupants = self._occupants(pos, target)
+            if occupants:
+                kind = f" ({point.type})" if point.type else ""
+                facts.append(
+                    f"the input port tile{kind} ({pos.x}, {pos.y}) of {target_location} is "
+                    f"occupied by {', '.join(occupants[:3])}"
+                )
+        for point in source_fluid_positions:
+            if point.type == "all":
+                continue
+            pos = self._adjust_connection_point(
+                IndexedPosition(x=point.x, y=point.y, type=point.type), source
+            )
+            occupants = self._occupants(pos, source)
+            if occupants:
+                kind = f" ({point.type})" if point.type else ""
+                facts.append(
+                    f"the output port tile{kind} ({pos.x}, {pos.y}) of {source_location} is "
+                    f"occupied by {', '.join(occupants[:3])}"
+                )
+        if target_fluids and source_fluid_positions and not source_fluids:
+            facts.append(
+                f"{source_location} holds no fluid; {target_location} takes {sorted(set(target_fluids))}"
+            )
+        if target_fluids and source_fluids and not intersection and "all" not in source_fluids:
+            facts.append(
+                f"{target_location} takes {sorted(set(target_fluids))}, "
+                f"{source_location} gives {sorted(set(source_fluids))}"
+            )
+        if not facts:
+            facts.append("no output port of the source matches an input port of the target")
+        return (
+            f"Did not find any valid connections between source {source_location} and target "
+            f"{target_location}: {'; '.join(facts)}. connect_entities pipes from a fluid output "
+            "of the source to a fluid input of the target."
+        )
+
     def _refresh_entity(self, entity: Entity):
         entity = self.get_entities(
             {prototype_by_name[entity.name]}, position=entity.position, radius=0.5
@@ -131,29 +215,10 @@ class FluidConnectionResolver(Resolver):
                             (source_position, adjusted_target_position)
                         )
         if not connection_pairs:
-            source_location = (
-                f"{source.prototype} at {source.position}"
-                if isinstance(source, Entity)
-                else f"{source}"
-            )
-            target_location = (
-                f"{target.prototype} at {target.position}"
-                if isinstance(target, Entity)
-                else f"{target}"
-            )
-
-            # first check if target expects fluids but source does not have them
-            target_fluids = [x.type for x in target_fluid_positions if x.type]
-            source_fluids = [x.type for x in source_fluid_positions if x.type]
-            intersection = set(target_fluids).intersection(set(source_fluids))
-            # if target expects fluids but source does not have them
-            if target_fluids and not intersection:
-                raise Exception(
-                    f"Fluids currently at source {source_location}: {source_fluids} not needed and expected by the target {target_location}"
-                )
-            # generate a generic error message
             raise Exception(
-                f"Did not find any valid connections between source {source_location} and target {target_location}. Make sure none of the source or target connections points are blocked and the target is able to receive the fluid from the source"
+                self._no_connection_message(
+                    source, target, source_fluid_positions, target_fluid_positions
+                )
             )
         # Sort pairs by total Manhattan distance
         return sorted(
