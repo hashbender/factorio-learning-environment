@@ -113,7 +113,15 @@ local function fluid_segment_ids(entity)
     if not (entity and entity.valid and entity.fluidbox) then return ids end
     for i = 1, #entity.fluidbox do
         local ok, id = pcall(entity.fluidbox.get_fluid_segment_id, i)
-        if ok and id then ids[id] = true end
+        if ok and id then
+            ids[id] = true
+        else   -- a machine's own fluid box belongs to no segment: the segment of what it is connected to
+            local ok_c, conns = pcall(entity.fluidbox.get_connections, i)
+            for _, other in pairs(ok_c and conns or {}) do
+                local ok_o, oid = pcall(other.get_fluid_segment_id, 1)
+                if ok_o and oid then ids[oid] = true end
+            end
+        end
     end
     return ids
 end

@@ -1962,10 +1962,24 @@ storage.utils.serialize_entity = function(entity)
             local has_fluid = false
             local fluid_contents = nil
             for i = 1, #entity.fluidbox do
+                -- a machine's own fluid box belongs to no segment (Factorio 2.0 returns nil for it): its network
+                -- is the segment of what the box is connected to (a pipe, a tank)
+                local ids_here = {}
                 local ok_s, system_id = pcall(entity.fluidbox.get_fluid_segment_id, i)
-                if ok_s and system_id and not seen_systems[system_id] then
-                    seen_systems[system_id] = true
-                    table.insert(fluid_systems, system_id)
+                if ok_s and system_id then
+                    table.insert(ids_here, system_id)
+                else
+                    local ok_c, conns = pcall(entity.fluidbox.get_connections, i)
+                    for _, other in pairs(ok_c and conns or {}) do
+                        local ok_o, oid = pcall(other.get_fluid_segment_id, 1)
+                        if ok_o and oid then table.insert(ids_here, oid) end
+                    end
+                end
+                for _, id in ipairs(ids_here) do
+                    if not seen_systems[id] then
+                        seen_systems[id] = true
+                        table.insert(fluid_systems, id)
+                    end
                 end
                 if entity.fluidbox[i] and not has_fluid then
                     has_fluid = true
