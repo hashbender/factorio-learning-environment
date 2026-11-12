@@ -1031,9 +1031,12 @@ class ConnectEntities(Tool):
         result = None
         last_handle = None
         for size in entity_sizes:
-            if size != entity_sizes[0] and _monotonic() > getattr(
-                self, "_give_up_at", float("inf")
-            ):
+            if _monotonic() > getattr(self, "_give_up_at", float("inf")):
+                if result is None and last_handle is None:
+                    return PathResult(
+                        "Failed to find a path. (The leg's search time was used up "
+                        "before the game's path search was asked for this route.)"
+                    )
                 break  # the leg's search time is used up
             # The path is computed asynchronously by the game, a little each tick, so
             # a fixed wall-clock sleep is too short at low game speeds (at 1x, 50 ms

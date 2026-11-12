@@ -79,3 +79,12 @@ def test_a_real_call_whose_dry_leg_fails_raises_that_without_searching_again():
     with pytest.raises(Exception, match="No pipe route"):
         tool(Position(x=0.5, y=0.5), Position(x=9.5, y=0.5), connection_type=Prototype.Pipe)
     assert calls == [True]  # the walk's dry leg only: no second search for the real call
+
+
+def test_no_path_search_starts_once_the_budget_is_used(monkeypatch):
+    monkeypatch.setattr(client_module, "_monotonic", lambda: 100.0)
+    tool = ConnectEntities.__new__(ConnectEntities)
+    tool._give_up_at = 50.0
+    tool.request_path = lambda **kw: (_ for _ in ()).throw(AssertionError("no path request"))
+    r = tool._attempt_path_finding(Position(x=0.5, y=0.5), Position(x=9.5, y=0.5), ["pipe"], 10)
+    assert not r.is_success and "Failed to find a path" in r.error_message
