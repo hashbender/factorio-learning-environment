@@ -675,6 +675,11 @@ class ConnectEntities(Tool):
             except Exception as e:
                 # Check if this is the specific "Failed to find a path" error for existing connections
                 error_str = str(e)
+                if _is_item_shortage(error_str):
+                    # The route exists (it is the one the dry run reports); only items are short. Other position
+                    # pairs must not replace this with their own failure (e.g. a start tile blocked by a pole).
+                    last_exception = e
+                    break
                 if "Failed to find a path" in error_str:
                     # Check for belt connections
                     if any(
