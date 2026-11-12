@@ -889,6 +889,97 @@ local function detail_target(entity, getter, pos, verb)
     return text
 end
 
+-- An inserter waiting for source items while its pickup belt holds items: the drop target
+-- is not taking those items now (an inserter picks up from a belt only what its drop
+-- target accepts). Names the items on the pickup belt and what the target holds of them,
+-- or that they are not an ingredient of its recipe / research; plus what it is missing.
+local BELT_TYPES = {["transport-belt"] = true, ["underground-belt"] = true, ["splitter"] = true,
+    ["loader"] = true, ["loader-1x1"] = true, ["lane-splitter"] = true}
+
+local function detail_belt_items(belt)
+    local items, order = {}, {}
+    local n = 2
+    pcall(function() n = belt.get_max_transport_line_index() end)
+    for i = 1, n do
+        local ok, line = pcall(function() return belt.get_transport_line(i) end)
+        if ok and line then
+            for name, count in pairs(storage.utils.get_contents_compat(line)) do
+                if not items[name] then table.insert(order, name) end
+                items[name] = (items[name] or 0) + count
+            end
+        end
+    end
+    table.sort(order)
+    return items, order
+end
+
+local function detail_uses(target)
+    -- {name = true} for the target's recipe ingredients / current research packs, the
+    -- input inventory, and the missing text; nil uses when unknown (no recipe)
+    if target.type == "lab" then
+        local inv = target.get_inventory(defines.inventory.lab_input)
+        local tech = target.force and target.force.current_research
+        if not tech then return nil, inv, nil, "no research" end
+        local uses, parts = {}, {}
+        for _, ing in pairs(tech.research_unit_ingredients) do
+            uses[ing.name] = true
+            local have = inv and inv.get_item_count(ing.name) or 0
+            if have < ing.amount then
+                table.insert(parts, ing.name .. " (" .. detail_num(have) .. " of " .. detail_num(ing.amount) .. ")")
+            end
+        end
+        return uses, inv, (#parts > 0) and ("missing " .. detail_capped(parts)) or nil, tech.name
+    end
+    local ok, recipe = pcall(function() return target.get_recipe() end)
+    local inv
+    pcall(function()
+        inv = target.get_inventory(target.type == "furnace" and defines.inventory.furnace_source
+            or defines.inventory.assembling_machine_input)
+    end)
+    if not ok or not recipe then return nil, inv, nil, nil end
+    local uses = {}
+    for _, ing in pairs(recipe.ingredients) do uses[ing.name] = true end
+    return uses, inv, detail_missing_ingredients(target, "item"), recipe.name
+end
+
+local function detail_not_taken(entity)
+    local ok_t, belt = pcall(function() return entity.pickup_target end)
+    if not (ok_t and belt and belt.valid and BELT_TYPES[belt.type]) then return nil end
+    local ok_d, target = pcall(function() return entity.drop_target end)
+    if not (ok_d and target and target.valid) then return nil end
+    if not (target.type == "lab" or target.type == "assembling-machine" or target.type == "furnace") then
+        return nil
+    end
+    local items, order = detail_belt_items(belt)
+    if #order == 0 then return nil end
+    local uses, inv, missing, what = detail_uses(target)
+    local held, unused = {}, {}
+    for _, name in ipairs(order) do
+        if uses and not uses[name] then
+            table.insert(unused, name)
+        else
+            table.insert(held, name .. " " .. detail_num(inv and inv.get_item_count(name) or 0))
+        end
+    end
+    local belt_parts = {}
+    for _, name in ipairs(order) do table.insert(belt_parts, name .. " " .. detail_num(items[name])) end
+    local text = "; belt has " .. detail_capped(belt_parts) .. ", not taken now by " .. target.name .. " at "
+        .. detail_pos(target.position) .. " ("
+    local why = {}
+    if #held > 0 then table.insert(why, "holds " .. detail_capped(held)) end
+    if #unused > 0 then
+        if target.type == "lab" then
+            table.insert(why, detail_capped(unused) .. " not used by " .. (what or "the current research"))
+        else
+            table.insert(why, detail_capped(unused) .. " not in recipe " .. (what or "?"))
+        end
+    elseif uses == nil and what == "no research" then
+        table.insert(why, "no research set")
+    end
+    if missing then table.insert(why, missing) end
+    return text .. table.concat(why, "; ") .. ")"
+end
+
 local function detail_text(entity)
     local ok, s = pcall(function() return entity.status end)
     if not ok or not s then return nil end
@@ -923,8 +1014,11 @@ local function detail_text(entity)
             "waiting for space in")
     elseif s == S.waiting_for_source_items then
         local ok_p, pos = pcall(function() return entity.pickup_position end)
-        return detail_target(entity, function() return entity.pickup_target end, ok_p and pos or nil,
+        local text = detail_target(entity, function() return entity.pickup_target end, ok_p and pos or nil,
             "waiting for items from")
+        local ok_n, extra = pcall(detail_not_taken, entity)
+        if text and ok_n and extra then text = text .. extra end
+        return text
     elseif s == S.no_minable_resources then
         local r
         pcall(function() r = entity.prototype.get_mining_drill_radius(entity.quality) end)
