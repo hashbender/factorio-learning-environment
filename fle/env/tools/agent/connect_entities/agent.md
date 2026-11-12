@@ -257,6 +257,7 @@ The `ConnectDryRun` has (as attributes, or like a dict: `plan["route_found"]`):
 
 What a dry run covers:
 
+- Each leg (between two waypoints) stops searching after 25 seconds: further position pairs and path searches are not tried, and the error says so and how many pairs were not tried. The dry run and the real call each have this limit.
 - The route is found on the map as it is now, with the items you hold now: with `Prototype.UndergroundPipe` among the connection types, it uses as many underground sections as your inventory allows, as the real call does; underground belts are used as described under Transport Belt Connections.
 - With two waypoints, the dry run and the real call use the same route search on the same map.
 - With more than two waypoints, each leg is checked separately on the map as it is now, and a tile two legs share is listed once. The real call builds leg by leg and starts each later leg from what the leg before built, so its later legs can use other tiles than the dry run lists.
