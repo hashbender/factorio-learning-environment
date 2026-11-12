@@ -7,6 +7,7 @@ from fle.env.tools import Tool
 
 
 _NAME = re.compile(r"[a-z0-9-]{1,100}")
+_UNDERGROUND_BELTS = ("underground-belt", "fast-underground-belt", "express-underground-belt")
 
 
 class PickedUp:
@@ -89,14 +90,15 @@ class PickupEntity(Tool):
                         return False
                 return True
 
-        if position:
-            x, y = position.x, position.y
-            response, elapsed = self.execute(
-                self.player_index, x, y, name, self.check_reach
-            )
-        elif isinstance(entity, ent.UndergroundBelt):
+        if name in _UNDERGROUND_BELTS and (
+            position or isinstance(entity, ent.Entity)
+        ):
             # Both ends of a pair the game links; an unpaired end alone. Nothing else.
-            x, y = entity.position.x, entity.position.y
+            # (By entity or by prototype and position alike.)
+            x, y = (position.x, position.y) if position else (
+                entity.position.x,
+                entity.position.y,
+            )
             partner = self._underground_partner(name, x, y)
             response, elapsed = self.execute(
                 self.player_index, x, y, name, self.check_reach
@@ -122,6 +124,11 @@ class PickupEntity(Tool):
                 f"{self.get_error_message(response)}",
             )
 
+        elif position:
+            x, y = position.x, position.y
+            response, elapsed = self.execute(
+                self.player_index, x, y, name, self.check_reach
+            )
         elif isinstance(entity, ent.Entity):
             x, y = entity.position.x, entity.position.y
             response, elapsed = self.execute(
