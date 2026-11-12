@@ -257,7 +257,10 @@ function storage.utils.get_issues(entity)
     --    end
     --end
     if not has_output_space(entity) then
-        if entity.drop_position then
+        if entity.type == "mining-drill" and entity.fluidbox and #entity.fluidbox > 0 then
+            -- a pumpjack: its output is a fluid box, not a drop position (nothing lies on the ground)
+            table.insert(issues, "\'output fluid box full\'")
+        elseif entity.drop_position then
             local rounded_x = round_to_half(entity.drop_position.x)
             local rounded_y = round_to_half(entity.drop_position.y)
 
