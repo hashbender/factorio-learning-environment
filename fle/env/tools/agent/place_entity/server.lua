@@ -455,11 +455,15 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
 
             -- Check for blocking entities
             local prototype = prototypes.entity[entity]
-            local width = 1
-            local height = 1
+            -- half the footprint, a hair inside its edges: only entities that overlap it (not its neighbours)
+            local width = 0.49
+            local height = 0.49
             if prototype and prototype.tile_width then
-                width = prototype.tile_width / 2 + 0.5
-                height = prototype.tile_height / 2 + 0.5
+                width = prototype.tile_width / 2 - 0.01
+                height = prototype.tile_height / 2 - 0.01
+                if entity_direction == defines.direction.east or entity_direction == defines.direction.west then
+                    width, height = height, width
+                end
             end
             local area = {{position.x - width, position.y - height}, {position.x + width, position.y + height}}
             local blocking = player.surface.find_entities_filtered{area = area}

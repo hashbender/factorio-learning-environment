@@ -871,7 +871,7 @@ local function detail_target(entity, getter, pos, verb)
     local ok, target = pcall(getter)
     if not (ok and target and target.valid) and pos then
         for _, e in pairs(entity.surface.find_entities_filtered{position = pos, limit = 5}) do
-            if e.valid and e ~= entity and e.type ~= "character" and e.type ~= "item-entity" then
+            if e.valid and e ~= entity and e.type ~= "character" and e.type ~= "item-entity" and e.type ~= "resource" then
                 target = e
                 break
             end
@@ -1009,6 +1009,20 @@ local function detail_text(entity)
         if #parts == 0 then return "no fuel (fuel slot empty)" end
         return "no fuel (fuel slot: " .. detail_capped(parts) .. ")"
     elseif s == S.waiting_for_space_in_destination then
+        -- a pumpjack (a drill with a fluid output): its output fluid box, and whether anything is connected to it
+        if entity.type == "mining-drill" and entity.fluidbox and #entity.fluidbox > 0 then
+            local f = entity.fluidbox[1]
+            local what = f and (f.name .. " " .. math.floor(f.amount + 0.5)) or "empty"
+            local text = "output fluid box full (" .. what .. ")"
+            local ok_c, conns = pcall(entity.fluidbox.get_pipe_connections, 1)
+            local names = {}
+            for _, c in pairs(ok_c and conns or {}) do
+                local o = c.target and c.target.owner
+                if o and o.valid then table.insert(names, o.name .. " at " .. detail_pos(o.position)) end
+            end
+            if #names == 0 then return text .. "; nothing is connected to its output" end
+            return text .. "; its output is connected to " .. table.concat(names, ", ")
+        end
         local ok_p, pos = pcall(function() return entity.drop_position end)
         return detail_target(entity, function() return entity.drop_target end, ok_p and pos or nil,
             "waiting for space in")

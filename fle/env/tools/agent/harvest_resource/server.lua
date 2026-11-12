@@ -270,6 +270,21 @@ local function check_inventory_space(player, entity, count)
 end
 
 
+-- A resource whose product is a fluid (crude oil): the character cannot mine it
+local function is_fluid_resource(e)
+    if not (e and e.valid and e.type == "resource") then return false end
+    local ok, products = pcall(function() return e.prototype.mineable_properties.products end)
+    return ok and products and products[1] and products[1].type == "fluid" or false
+end
+
+local function without_fluid_resources(entities)
+    local out = {}
+    for _, e in ipairs(entities) do
+        if not is_fluid_resource(e) then table.insert(out, e) end
+    end
+    return out
+end
+
 local function find_entity_type_at_position(surface, position)
     local exact_entities = surface.find_entities_filtered{
         position = position,
@@ -277,10 +292,16 @@ local function find_entity_type_at_position(surface, position)
         radius = 1.5  -- Slightly larger radius to include entities at boundary
     }
 
-    if #exact_entities > 0 then
-        -- game.print("Found type ".. exact_entities[1].name)
-        return exact_entities[1].type, exact_entities[1].name
+    local fluid = nil
+    for _, e in ipairs(exact_entities) do
+        if is_fluid_resource(e) then
+            fluid = fluid or e
+        else
+            -- game.print("Found type ".. e.name)
+            return e.type, e.name
+        end
     end
+    if fluid then return "fluid-resource", fluid end
     return nil, nil
 end
 
@@ -370,6 +391,7 @@ end
 
 function harvest(entities, count, from_position, player)
     if count == 0 then return 0 end
+    entities = without_fluid_resources(entities)   -- crude oil: not minable by hand (and not an item)
     local yield = 0
 
     -- Check inventory space first using the first valid entity as reference
@@ -504,6 +526,10 @@ storage.actions.harvest_resource = function(player_index, x, y, count, radius)
 
     if not target_type then
         error(string.format("\"Nothing to harvest within 1.5 tiles of (%s, %s): no resource, tree or rock there\"", position.x, position.y))
+    end
+    if target_type == "fluid-resource" then
+        error(string.format("\"%s at (%s, %s) is a fluid resource; harvest_resource cannot mine it\"",
+            target_name.name, target_name.position.x, target_name.position.y))
     end
 
     --if not storage.fast then

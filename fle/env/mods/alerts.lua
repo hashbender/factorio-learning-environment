@@ -91,9 +91,19 @@ end
 
 local function can_mine(entity)
     if entity.type == "mining-drill" then
-        -- Check if there's no resource under the drill
+        -- No resource it can mine in its mining area. (mining_target is nil for any drill that has not started
+        -- yet: no power, no fuel, just placed; that alone is not "nothing to mine".)
         if entity.mining_target == nil then
-           return false
+            local proto = entity.prototype
+            local ok_r, r = pcall(function() return proto.get_mining_drill_radius(entity.quality) end)
+            if not (ok_r and r) then ok_r, r = pcall(function() return proto.mining_drill_radius end) end
+            if not (ok_r and type(r) == "number") then return true end
+            local p = entity.position
+            local cats = proto.resource_categories or {}
+            for _, res in pairs(entity.surface.find_entities_filtered{area = {{p.x - r, p.y - r}, {p.x + r, p.y + r}}, type = "resource"}) do
+                if res.valid and res.amount > 0 and cats[res.prototype.resource_category] then return true end
+            end
+            return false
         end
     end
     return true
