@@ -1530,3 +1530,29 @@ class Vehicle(Entity, BurnerType):
     trunk_inventory: Inventory = Inventory()
     _height: float = 2
     _width: float = 2
+
+
+class PickedUp(BaseModel):
+    """The answer of pickup_entity for an underground belt: true, and says what was
+    picked up (both ends of a linked pair, or the one end)."""
+
+    picked: List[str] = []
+    problem: Optional[str] = None
+
+    def __bool__(self) -> bool:
+        return True
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, bool):
+            return other is True
+        if isinstance(other, PickedUp):
+            return self.picked == other.picked and self.problem == other.problem
+        return NotImplemented
+
+    __hash__ = None
+
+    def __repr__(self) -> str:
+        text = "Picked up " + " and ".join(self.picked)
+        return text + (f"; {self.problem}" if self.problem else "")
+
+    __str__ = __repr__

@@ -10,29 +10,9 @@ _NAME = re.compile(r"[a-z0-9-]{1,100}")
 _UNDERGROUND_BELTS = ("underground-belt", "fast-underground-belt", "express-underground-belt")
 
 
-class PickedUp:
-    """The answer of pickup_entity for an underground belt: true, and says what was
-    picked up (both ends of a linked pair, or the one end)."""
-
-    def __init__(self, picked: List[str], problem: Optional[str] = None):
-        self.picked = list(picked)
-        self.problem = problem
-
-    def __bool__(self) -> bool:
-        return True
-
-    def __eq__(self, other) -> bool:
-        if isinstance(other, bool):
-            return other is True
-        return NotImplemented
-
-    __hash__ = None
-
-    def __repr__(self) -> str:
-        text = "Picked up " + " and ".join(self.picked)
-        return text + (f"; {self.problem}" if self.problem else "")
-
-    __str__ = __repr__
+# The answer for an underground belt (a pydantic model in fle.env.entities, so it can be
+# passed between processes like the other tool answers)
+PickedUp = ent.PickedUp
 
 
 class PickupEntity(Tool):
@@ -107,7 +87,7 @@ class PickupEntity(Tool):
                 raise Exception(f"Could not pickup: {self.get_error_message(response)}")
             picked = [f"{name} at ({x}, {y})"]
             if partner is None:
-                return PickedUp(picked)
+                return PickedUp(picked=picked)
             px, py = partner
             try:
                 response, elapsed = self.execute(
@@ -117,10 +97,10 @@ class PickupEntity(Tool):
                 response = str(e)
             if response == 1 or response == {}:
                 picked.append(f"its paired {name} at ({px}, {py})")
-                return PickedUp(picked)
+                return PickedUp(picked=picked)
             return PickedUp(
-                picked,
-                f"its paired {name} at ({px}, {py}) was not picked up: "
+                picked=picked,
+                problem=f"its paired {name} at ({px}, {py}) was not picked up: "
                 f"{self.get_error_message(response)}",
             )
 

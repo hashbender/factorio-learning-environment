@@ -258,7 +258,9 @@ class ConnectEntities(Tool):
             for _, target in zip(waypoints[:-1], waypoints[1:]):
                 # The character walks the leg first (in game time), so that every
                 # entity it builds was within its reach on the way.
-                self._walk_leg(connection, target, connection_types)
+                failed = self._walk_leg(connection, target, connection_types)
+                if isinstance(failed, Exception):
+                    raise failed
                 connection = self._connect_pair_of_waypoints(
                     connection,
                     target,
@@ -359,8 +361,10 @@ class ConnectEntities(Tool):
             leg = self._connect_pair_of_waypoints(
                 source, target, connection_types=connection_types, dry_run=True
             )
-        except Exception:
-            return  # the real call reports why the leg cannot be built
+        except Exception as e:  # noqa: BLE001
+            # the leg cannot be built on the map as it is: the real call would fail the
+            # same way, so the caller raises this instead of searching again
+            return e
         if not isinstance(leg, dict):
             return  # already connected: nothing to build
         planned = [

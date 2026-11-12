@@ -63,3 +63,19 @@ def test_path_box_sizes_stop_once_the_budget_is_used(monkeypatch):
     tool.execute = lambda *a: ("Failed to find a path.", 0)
     r = tool._attempt_path_finding(Position(x=0.5, y=0.5), Position(x=9.5, y=0.5), ["pipe"], 10)
     assert sizes == [1.5, 1] and not r.is_success
+
+
+def test_a_real_call_whose_dry_leg_fails_raises_that_without_searching_again():
+    tool = ConnectEntities.__new__(ConnectEntities)
+    tool._snapshot_belts = lambda w: None
+    tool._check_protected_belts = lambda: None
+    calls = []
+
+    def leg(source, target, connection_types=None, dry_run=False):
+        calls.append(dry_run)
+        raise Exception("No pipe route from (0.5, 0.5) to (9.5, 0.5): no buildable route")
+
+    tool._connect_pair_of_waypoints = leg
+    with pytest.raises(Exception, match="No pipe route"):
+        tool(Position(x=0.5, y=0.5), Position(x=9.5, y=0.5), connection_type=Prototype.Pipe)
+    assert calls == [True]  # the walk's dry leg only: no second search for the real call
