@@ -178,7 +178,8 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
                             ["entity-ghost"] = true, ["tile-ghost"] = true, ["highlight-box"] = true,
                             ["flying-text"] = true, ["resource"] = true}
         local area = {{left + 0.01, top + 0.01}, {right + 0.99, bottom + 0.99}}
-        for _, other in pairs(surface.find_entities_filtered{area = area}) do
+        local ok_f, found_here = pcall(surface.find_entities_filtered, {area = area})
+        for _, other in pairs(ok_f and found_here or {}) do
             if other.valid and not never_here[other.type] and masks_collide(own, mask_layers(other.prototype)) then
                 result.blocked_count = 1
                 table.insert(result.blocked_by, {kind = quoted("entity"), name = quoted(other.name), x = other.position.x, y = other.position.y})
