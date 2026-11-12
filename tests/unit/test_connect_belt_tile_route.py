@@ -446,20 +446,40 @@ def _ok(planned):
     return {"entities": {}, "connected": False, "number_of_entities": len(planned), "planned": planned}
 
 
-def test_a_belt_route_the_game_finds_does_not_search_tiles():
+def test_with_an_underground_belt_the_tile_route_goes_first():
+    planned = [{"name": "underground-belt", "x": 4.5, "y": 0.5, "direction": 4, "type": "input"}]
+    tool, walked = _client([_ok(planned)], [])
+    leg = tool._create_connection(A, B, BELTS, dry_run=True)
+    assert walked == [] and tool.execute.calls[0][5] == -1
+    assert set(tool.execute.calls[0][6].split(",")) == {"transport-belt", "underground-belt"}
+    assert leg["planned"] == planned
+
+
+def test_with_an_underground_belt_the_walking_path_is_the_fallback():
+    planned = [{"name": "transport-belt", "x": 0.5, "y": 0.5, "direction": 4}]
+    tool, walked = _client(["Failed to find a path. No belt route ..."], [_ok(planned)])
+    leg = tool._create_connection(A, B, BELTS, dry_run=True)
+    assert len(walked) == 1 and leg["planned"] == planned
+
+
+def test_when_both_fail_the_tile_routes_reason_is_the_error():
+    reason = "Failed to find a path. No belt route ...: cannot place transport-belt at (5.5, 0.5): blocked by stone-wall."
+    tool, walked = _client([reason], ["Failed to find a path.", "Failed to find a path."])
+    with pytest.raises(Exception) as e:
+        tool._create_connection(A, B, BELTS, dry_run=True)
+    assert "cannot place transport-belt at (5.5, 0.5)" in str(e.value) and len(walked) == 2
+
+
+def test_belts_alone_follow_the_walking_path_first():
     tool, walked = _client([], [_ok([{"name": "transport-belt", "x": 0.5, "y": 0.5, "direction": 4}])])
-    tool._create_connection(A, B, BELTS, dry_run=True)
+    tool._create_connection(A, B, {Prototype.TransportBelt}, dry_run=True)
     assert len(walked) == 1 and tool.execute.calls == []
 
 
-def test_a_belt_route_the_game_cannot_find_is_searched_tile_by_tile():
-    planned = [{"name": "underground-belt", "x": 4.5, "y": 0.5, "direction": 4, "type": "input"}]
-    tool, walked = _client([_ok(planned)], ["Failed to find a path.", "Failed to find a path."])
-    leg = tool._create_connection(A, B, BELTS, dry_run=True)
-    assert len(walked) == 2  # the walking path, then with adjusted ends
-    assert tool.execute.calls[0][5] == -1
-    assert set(tool.execute.calls[0][6].split(",")) == {"transport-belt", "underground-belt"}
-    assert leg["planned"] == planned
+def test_belts_alone_the_game_cannot_route_are_searched_tile_by_tile():
+    tool, walked = _client([_ok([])], ["Failed to find a path.", "Failed to find a path."])
+    tool._create_connection(A, B, {Prototype.TransportBelt}, dry_run=True)
+    assert len(walked) == 2 and tool.execute.calls[0][5] == -1
 
 
 def test_the_tile_routes_reason_is_the_error():
@@ -475,16 +495,20 @@ def test_the_tile_routes_reason_is_the_error():
     assert "cannot place transport-belt at (5.5, 0.5)" in str(e.value)
 
 
-def test_an_item_shortage_is_not_replaced_by_the_tile_route():
-    short = "You do not have enough items in your inventory to complete this connection (transport-belt: required 11, in inventory 3). Nothing was built."
-    tool, _ = _client([], [short, short])
+def test_an_item_shortage_is_not_replaced_by_another_route():
+    short = "You do not have enough items in your inventory to complete this connection (underground-belt: required 2, in inventory 0). Nothing was built."
+    tool, walked = _client([short], [])
     with pytest.raises(Exception, match="enough items"):
         tool._create_connection(A, B, BELTS, dry_run=False)
+    assert walked == []
+    tool, _ = _client([], [short, short])
+    with pytest.raises(Exception, match="enough items"):
+        tool._create_connection(A, B, {Prototype.TransportBelt}, dry_run=False)
     assert tool.execute.calls == []
 
 
 def test_a_timed_out_path_search_goes_straight_to_the_tile_route():
     timeout = "The game's path search timed out for this route from (0.5, 0.5) to (10.5, 0.5). Split it with waypoints closer together."
     tool, walked = _client([_ok([])], [timeout])
-    tool._create_connection(A, B, BELTS, dry_run=True)
+    tool._create_connection(A, B, {Prototype.TransportBelt}, dry_run=True)
     assert len(walked) == 1 and tool.execute.calls[0][5] == -1

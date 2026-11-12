@@ -72,7 +72,7 @@ Key points:
 - Use underground belts for crossing other belts
 - Belt groups maintain direction and flow information
 - Belts already on the map keep their direction, type and position. A route that would change one fails with an error naming that belt, and nothing is built. Connecting from a belt line starts in front of its last belt. Pass `allow_belt_changes=True` to let the tool turn the end belt of an existing line
-- How a belt route is found: first along the game's walking path, which treats belts already on the map as walls (it goes round them, never across). If that gives no route, the route is searched tile by tile:
+- How a belt route is found. With an underground belt among the connection types, the route is first searched tile by tile (below); if that finds none, it follows the game's walking path. With belts only, it first follows the game's walking path, and is searched tile by tile if that gives no route. The game's walking path treats belts already on the map as walls: it goes round them (however far), never across. The tile-by-tile search:
   - New belts go only on buildable tiles that no existing belt outputs onto (a belt there would join that line).
   - With an underground belt among the connection types (e.g. `{Prototype.TransportBelt, Prototype.UndergroundBelt}`), an underground pair carries the line under whatever is in its way (other belts, buildings, water). The exit is at most the game's maximum distance past its entrance: 5 tiles for UndergroundBelt (4 tiles crossed), 7 for FastUndergroundBelt, 9 for ExpressUndergroundBelt. The entrance is fed from straight behind and the exit sends the items straight on; an empty start tile can be the entrance and an empty end tile the exit.
   - Underground belts are used only for these crossings. If the crossings need more than you hold and a route without them exists, that route is used; if not, the route with them is returned and the item check names what is missing.
@@ -257,7 +257,7 @@ The `ConnectDryRun` has (as attributes, or like a dict: `plan["route_found"]`):
 
 What a dry run covers:
 
-- The route is found on the map as it is now, with the items you hold now: with underground belts or `Prototype.UndergroundPipe` among the connection types, it uses as many underground sections as your inventory allows, as the real call does.
+- The route is found on the map as it is now, with the items you hold now: with `Prototype.UndergroundPipe` among the connection types, it uses as many underground sections as your inventory allows, as the real call does; underground belts are used as described under Transport Belt Connections.
 - With two waypoints, the dry run and the real call use the same route search on the same map.
 - With more than two waypoints, each leg is checked separately on the map as it is now, and a tile two legs share is listed once. The real call builds leg by leg and starts each later leg from what the leg before built, so its later legs can use other tiles than the dry run lists.
 - With electric poles, `entities` lists every pole the real call places. The real call stops early if a pole it places joins the target pole's network, and can add one pole next to a target machine the line did not cover, so its count can differ by that.
