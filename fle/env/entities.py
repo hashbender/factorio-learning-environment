@@ -1,6 +1,6 @@
 import re
 from typing import Tuple, Any, Union, Dict, Literal
-from typing import List, Optional
+from typing import ClassVar, FrozenSet, List, Optional
 from enum import Enum, IntFlag
 from pydantic import (
     ConfigDict,
@@ -538,6 +538,19 @@ class Recipe(BaseModel):
     category: Optional[str] = None
     enabled: bool = False
 
+    # Dict-style reads (recipe["name"], recipe.get("name")) also work: a furnace's recipe
+    # used to be a plain dict.
+    def __getitem__(self, key: str):
+        if isinstance(key, str) and key in type(self).model_fields:
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key: str, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
 
 class BurnerType(BaseModel):
     """Type of entity that burns fuel"""
@@ -574,6 +587,9 @@ class Entity(EntityCore):
     status_detail: Optional[str] = None
     # game: Optional[Any] = None # RCON connection for refreshing attributes
 
+    # fields left out of this class's repr (on top of the ones above)
+    _repr_hidden: ClassVar[FrozenSet[str]] = frozenset()
+
     def __repr__(self) -> str:
         # Only includes the fields we want to present to the agent
         # Get all instance attributes
@@ -588,7 +604,7 @@ class Entity(EntityCore):
             "game",
             "id",
             "tile_dimensions",
-        }
+        } | self._repr_hidden
         rename_fields = {}
         repr_dict = {}
 
@@ -1189,6 +1205,9 @@ class ElectricityPole(Entity, Electric):
 class Furnace(Entity, BurnerType):
     """A furnace for smelting items"""
 
+    recipe: Optional[Recipe] = None  # the recipe it is smelting (set by the game)
+    # not in the printed entity, as before the field was declared (furnace.recipe still has it)
+    _repr_hidden: ClassVar[FrozenSet[str]] = frozenset({"recipe"})
     furnace_source: Inventory = Inventory()
     furnace_result: Inventory = Inventory()
     _height: float = 2
@@ -1198,6 +1217,9 @@ class Furnace(Entity, BurnerType):
 class ElectricFurnace(Entity, Electric):
     """An electrically-powered furnace."""
 
+    recipe: Optional[Recipe] = None  # the recipe it is smelting (set by the game)
+    # not in the printed entity, as before the field was declared (furnace.recipe still has it)
+    _repr_hidden: ClassVar[FrozenSet[str]] = frozenset({"recipe"})
     furnace_source: Inventory = Inventory()
     furnace_result: Inventory = Inventory()
     _height: float = 3
