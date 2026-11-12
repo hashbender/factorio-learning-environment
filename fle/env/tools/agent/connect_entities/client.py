@@ -61,7 +61,7 @@ _PROTOTYPE_NAME = re.compile(r"[a-z0-9-]{1,100}")
 _WALK_REACH = 8.0
 # One leg stops trying further position pairs and path box sizes after this many seconds
 # of searching, so a route that does not exist cannot use up a program's time limit
-_SEARCH_BUDGET_S = 25
+_SEARCH_BUDGET_S = 15
 
 
 def _is_item_shortage(message) -> bool:

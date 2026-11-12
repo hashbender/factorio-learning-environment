@@ -23,6 +23,7 @@ def test_a_leg_stops_after_its_search_budget_and_says_so(monkeypatch):
         return clock["t"]
 
     monkeypatch.setattr(client_module, "_monotonic", tick)
+    monkeypatch.setattr(client_module, "_SEARCH_BUDGET_S", 25)
     tool = ConnectEntities.__new__(ConnectEntities)
     tool._protected_belts = None
     tool.resolvers = {ConnectionType.FLUID: _Resolver()}
