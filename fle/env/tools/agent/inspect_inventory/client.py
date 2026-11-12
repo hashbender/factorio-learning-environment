@@ -4,12 +4,15 @@ from fle.env import Inventory, Entity, Position
 from fle.env.tools import Tool
 
 
+_MINE = object()  # no argument: your own inventory
+
+
 class InspectInventory(Tool):
     def __init__(self, *args):
         super().__init__(*args)
 
     def __call__(
-        self, entity=None, all_players: bool = False
+        self, entity=_MINE, all_players: bool = False
     ) -> Union[Inventory, List[Inventory]]:
         """
         Inspects the inventory of the given entity. If no entity is given, inspect your own inventory.
@@ -18,6 +21,14 @@ class InspectInventory(Tool):
         :param all_players: If True, returns inventories for all players
         :return: Inventory of the given entity or list of inventories for all players
         """
+
+        if entity is None:
+            raise ValueError(
+                "inspect_inventory(None): the entity passed is None. With no argument, "
+                "inspect_inventory() inspects your own inventory."
+            )
+        if entity is _MINE:
+            entity = None
 
         if all_players:
             response, execution_time = self.execute(

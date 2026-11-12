@@ -27,4 +27,5 @@ The `PlacementCheck` has:
 - `tile (140, -62) is in a part of the map that has not been generated or charted`
 - `pumpjack must be placed on a resource it can mine (crude-oil); there is none under this position`
 - `offshore-pump must be placed at the edge of water, facing the water`
+- `transport-belt already stands at (9.5, 3.5); place_entity does not build over an entity of the same name (it does not turn or replace it)`: the game would turn or replace it, `place_entity` does not; that entity is in `blocked_by`
 - `fits, but out of reach (distance 14.2, reach 10)`, `fits, but no stone-furnace in your inventory`

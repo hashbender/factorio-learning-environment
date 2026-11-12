@@ -12,7 +12,7 @@ The function returns an Inventory object that can be queried using Prototype obj
 
 ### Parameters
 
-- `entity`: Optional Entity or Position to inspect (if None, inspects player inventory)
+- `entity`: Optional Entity or Position to inspect (without it, inspects your own inventory; passing `None` raises an error)
 
 ### Return Value
 

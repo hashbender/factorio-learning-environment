@@ -515,6 +515,19 @@ class Ingredient(BaseModel):
     count: Optional[int] = 1
     type: Optional[Literal["fluid", "item"]] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _amount_is_count(cls, data):
+        """The game's recipe data (serialize_recipe) names the count `amount`."""
+        if isinstance(data, dict) and data.get("count") is None and data.get("amount") is not None:
+            try:
+                amount = float(data["amount"])
+            except (TypeError, ValueError):
+                return data
+            if amount == amount and abs(amount) != float("inf"):
+                data = {**data, "count": round(amount)}
+        return data
+
 
 class AvailableTechnology(BaseModel):
     """A technology that can be researched now (get_available_technologies)."""
