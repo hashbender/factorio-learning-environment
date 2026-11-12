@@ -756,7 +756,11 @@ class ConnectEntities(Tool):
                         if connection:
                             return connection
                         continue
-                    if connection and len(connection) > 0:
+                    if connection is None:
+                        # the fallback found no route: fail with the cause, as the dry run
+                        # does (not an existing group that happens to be near the target)
+                        continue
+                    if len(connection) > 0:
                         return connection[0]
                     else:
                         # No entities were created but pathing was successful - get existing group at target
