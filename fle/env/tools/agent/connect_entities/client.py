@@ -60,6 +60,29 @@ _PROTOTYPE_NAME = re.compile(r"[a-z0-9-]{1,100}")
 _WALK_REACH = 8.0
 
 
+def _is_item_shortage(message) -> bool:
+    return "enough items in your inventory" in str(message or "")
+
+
+def _underground_note(result, held: int) -> Optional[str]:
+    """The route had room for more pipe-to-ground tunnels than it uses (too few held):
+    a sentence saying so, else None."""
+    raw = getattr(result, "raw_response", None)
+    if not getattr(result, "is_success", False) or not isinstance(raw, dict):
+        return None
+    try:
+        wanted = int(raw.get("underground_wanted") or 0)
+        used = int(raw.get("underground_used") or 0)
+    except (TypeError, ValueError):
+        return None
+    if wanted <= used:
+        return None
+    return (
+        f"pipe-to-ground: the route has room for {wanted} ({wanted // 2} pairs); "
+        f"you hold {held}, so it uses {used} and the rest of the route is surface pipe"
+    )
+
+
 class ConnectEntities(Tool):
     def __init__(self, connection, game_state):
         super().__init__(connection, game_state)
@@ -204,6 +227,7 @@ class ConnectEntities(Tool):
         assert len(waypoints) > 1, "Need more than one waypoint"
         connection = waypoints[0]
         dry_run = kwargs.get("dry_run", False)
+        self._notes = []  # what the real call reports beside its group (pipe-to-ground)
 
         # Belts already on the map are recorded so the route can be checked against them
         self._protected_belts = None
@@ -251,6 +275,8 @@ class ConnectEntities(Tool):
             here = self.character_position()
             if here is not None:
                 self.game_state.player_location = here
+            if self._notes and isinstance(connection, PipeGroup):
+                connection.notes = list(self._notes)
 
         poles = {
             Prototype.SmallElectricPole,
@@ -393,6 +419,7 @@ class ConnectEntities(Tool):
         with the position it names."""
         entities: list = []
         belt_changes: List[str] = []
+        notes: List[str] = []
         available = 0
         try:
             inventory = self.inspect_inventory()
@@ -406,6 +433,8 @@ class ConnectEntities(Tool):
                 if not isinstance(leg, dict):
                     continue  # this leg is already connected: nothing to place
                 available = leg.get("number_of_entities_available", available)
+                if leg.get("note"):
+                    notes.append(leg["note"])
                 dry_run_result.merge_leg(
                     entities,
                     dry_run_result.planned_entities(leg.get("planned") or []),
@@ -429,7 +458,7 @@ class ConnectEntities(Tool):
         for e in entities:
             if e.name not in held:
                 held[e.name] = self._inventory_count(inventory, e.name)
-        return dry_run_result.success(entities, held, available, belt_changes)
+        return dry_run_result.success(entities, held, available, belt_changes, notes)
 
     @staticmethod
     def _inventory_count(inventory, name: str) -> int:
@@ -913,6 +942,30 @@ class ConnectEntities(Tool):
                 return "not_found"
             return "error"
 
+    def _tile_route(
+        self,
+        source_pos: Position,
+        target_pos: Position,
+        connection_prototypes: List[str],
+        num_available: int,
+        dry_run: bool = False,
+    ) -> PathResult:
+        """A pipe route without the game's path search (handle -1): the server finds an
+        existing connection, else searches the route tile by tile (pipe-to-ground alone:
+        a straight line of pairs)."""
+        response, _ = self.execute(
+            self.player_index,
+            source_pos.x,
+            source_pos.y,
+            target_pos.x,
+            target_pos.y,
+            -1,
+            ",".join(connection_prototypes),
+            dry_run,
+            num_available,
+        )
+        return PathResult(response)
+
     def _attempt_path_finding(
         self,
         source_pos: Position,
@@ -1029,6 +1082,7 @@ class ConnectEntities(Tool):
         num_available = inventory.get(connection_prototype, 0)
 
         connection_type_names_values = list(connection_type_names.values())
+        note = None
         # Determine connection strategy based on type
         match connection_types:
             case _ if connection_types & {Prototype.Pipe, Prototype.UndergroundPipe}:
@@ -1036,16 +1090,40 @@ class ConnectEntities(Tool):
                 self._extend_collision_boxes(source_pos, target_pos)
                 num_available = inventory.get(Prototype.Pipe, 0)
                 try:
-                    result = self._attempt_path_finding(
-                        source_pos,
-                        target_pos,
-                        connection_type_names_values,
-                        num_available,
-                        pathing_radius,
-                        dry_run,
-                    )
+                    result = None
+                    if Prototype.UndergroundPipe in connection_types:
+                        # With pipe-to-ground: the tile-by-tile route first (straight
+                        # runs, tunnels at full reach); pipe-to-ground alone is a
+                        # straight line of pairs. No game path is needed for either.
+                        result = self._tile_route(
+                            source_pos,
+                            target_pos,
+                            connection_type_names_values,
+                            num_available,
+                            dry_run,
+                        )
+                        if (
+                            not result.is_success
+                            and Prototype.Pipe in connection_types
+                            and not _is_item_shortage(result.error_message)
+                        ):
+                            result = None  # then along the game's walking path
+                    if result is None:
+                        result = self._attempt_path_finding(
+                            source_pos,
+                            target_pos,
+                            connection_type_names_values,
+                            num_available,
+                            pathing_radius,
+                            dry_run,
+                        )
                 finally:
                     self._clear_collision_boxes()
+                note = _underground_note(
+                    result, self._inventory_count(inventory, "pipe-to-ground")
+                )
+                if note and not dry_run and getattr(self, "_notes", None) is not None:
+                    self._notes.append(note)
             case _ if (
                 (
                     connection_types
@@ -1133,6 +1211,7 @@ class ConnectEntities(Tool):
                 "number_of_entities_available": num_available,
                 "planned": result.planned,
                 "would_turn": result.would_turn,
+                "note": note,
             }
 
         groupable_entities, path = self._get_groupable_entities(

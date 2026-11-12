@@ -1304,16 +1304,19 @@ storage.utils.plan_pipe_route = function(o)
     local crossings = 0
     for _, p in ipairs(placements) do if p.kind == "in" then crossings = crossings + 1 end end
 
-    -- straight runs: underground pairs with the pipe-to-ground left over
+    -- straight runs: underground pairs with the pipe-to-ground left over, each at up
+    -- to max_jump tiles, back to back. Runs a pair would cover had there been enough
+    -- pipe-to-ground stay surface pipe and are counted (short_pairs).
     local budget = (o.underground_budget or 0) - 2 * crossings
-    if max_jump >= 2 and budget >= 2 then
+    local short_pairs = 0
+    if max_jump >= 2 then
         local out = {placements[1]}
         local i = 2
         local n = #placements
         while i <= n do
             local p = placements[i]
             local m_best = nil
-            if budget >= 2 and p.kind == "pipe" and i < n and not p.jump then
+            if p.kind == "pipe" and i < n and not p.jump then
                 local d = p.dir
                 local m = i
                 while m + 1 <= n - 1 and m + 1 - i <= max_jump do
@@ -1335,10 +1338,14 @@ storage.utils.plan_pipe_route = function(o)
                 end
                 if m - i >= 3 and clear then m_best = m end
             end
-            if m_best then
+            if m_best and budget >= 2 then
                 out[#out + 1] = {kind = "in", position = p.position, dir = p.dir}
                 out[#out + 1] = {kind = "out", position = placements[m_best].position, dir = p.dir}
                 budget = budget - 2
+                i = m_best + 1
+            elseif m_best then
+                short_pairs = short_pairs + 1
+                for t = i, m_best do out[#out + 1] = placements[t] end
                 i = m_best + 1
             else
                 out[#out + 1] = p
@@ -1351,7 +1358,29 @@ storage.utils.plan_pipe_route = function(o)
     for _, p in ipairs(placements) do
         if p.kind == "pipe" then pipes = pipes + 1 else undergrounds = undergrounds + 1 end
     end
-    return {placements = placements, pipes = pipes, undergrounds = undergrounds, expanded = expanded}
+    return {placements = placements, pipes = pipes, undergrounds = undergrounds, expanded = expanded,
+            short_pairs = short_pairs}
+end
+
+-- plan_pipe_route, using no more pipe-to-ground than o.underground_budget (the number
+-- held): when the obstacle crossings alone need more, a route of plain pipes is
+-- planned instead. Only when there is none is the plan with the crossings returned
+-- (the item check then names the pipe-to-ground it needs).
+storage.utils.plan_pipe_route_within_held = function(o)
+    local plan, why = storage.utils.plan_pipe_route(o)
+    if plan and plan.undergrounds > (o.underground_budget or 0) and (o.max_jump or 0) > 0 then
+        local plain_opts = {}
+        for k, v in pairs(o) do plain_opts[k] = v end
+        plain_opts.max_jump = 0
+        plain_opts.underground_budget = 0
+        local plain = storage.utils.plan_pipe_route(plain_opts)
+        if plain then
+            -- what the route with its crossings and full tunnels would have used
+            plain.wanted_undergrounds = plan.undergrounds + 2 * plan.short_pairs
+            return plain
+        end
+    end
+    return plan, why
 end
 
 local function is_pipe_route(connection_types)
@@ -1390,7 +1419,7 @@ local function connect_pipes_by_tiles(player_index, source_x, source_y, target_x
             if id then own_segments[id] = true end
         end
     end
-    local plan, why = storage.utils.plan_pipe_route{
+    local route = {
         start = start,
         goal = goal,
         free = function(p)
@@ -1409,9 +1438,10 @@ local function connect_pipes_by_tiles(player_index, source_x, source_y, target_x
         has_underground = function(p)
             return #surface.find_entities_filtered{name = "pipe-to-ground", position = p, radius = 0.4} > 0
         end,
-        max_jump = underground and storage.utils.underground_pipe_reach(underground) - 1 or 0,
+        max_jump = underground and storage.utils.underground_pipe_reach(underground) or 0,
         underground_budget = underground and held(underground) or 0,
     }
+    local plan, why = storage.utils.plan_pipe_route_within_held(route)
     if not plan then
         error("\"No pipe route from (" .. start.x .. ", " .. start.y .. ") to (" .. goal.x .. ", " .. goal.y .. "): " .. why .. "\"", 0)
     end
@@ -1436,6 +1466,93 @@ local function connect_pipes_by_tiles(player_index, source_x, source_y, target_x
             place_at_position(player, underground, p.position, storage.utils.get_entity_direction(underground, d),
                 serialized_entities, dry_run, counter_state, p.kind == "out")
         end
+    end
+    local answer = {entities = serialized_entities, connected = not dry_run,
+            number_of_entities = counter_state.place_counter, planned = counter_state.planned}
+    -- fewer tunnels than the route has room for: the pipe-to-ground it would have used
+    local wanted = plan.wanted_undergrounds or (plan.undergrounds + 2 * (plan.short_pairs or 0))
+    if underground and wanted > plan.undergrounds then
+        answer.underground_wanted = wanted
+        answer.underground_used = plan.undergrounds
+    end
+    return answer
+end
+
+-- ---------------------------------------------------------------------------
+-- Pipe-to-ground alone: a straight line of pipe-to-ground pairs, back to back, from
+-- the start tile to the end tile (the same x or the same y), with no pipes. Each
+-- exit is at most `reach` tiles past its entrance (the game's max_underground_distance);
+-- the line uses as few pairs as that allows, of near-equal length.
+-- Pure: o.start, o.goal (tile centres), o.reach, o.crosses(p, axis): true if tile p holds a
+-- pipe-to-ground on the line's axis (a pair must not span one: the game would pair with it).
+-- Returns {placements = {{kind = "in"|"out", position, dir = travel dir}}, pipes, undergrounds}
+-- or nil and a reason.
+-- ---------------------------------------------------------------------------
+storage.utils.plan_pipe_to_ground_line = function(o)
+    local sx, sy = math.floor(o.start.x), math.floor(o.start.y)
+    local gx, gy = math.floor(o.goal.x), math.floor(o.goal.y)
+    local function at(x, y) return "(" .. (x + 0.5) .. ", " .. (y + 0.5) .. ")" end
+    if sx ~= gx and sy ~= gy then
+        return nil, "Prototype.UndergroundPipe alone connects two tiles in a straight line (the same x or the same y): "
+            .. at(sx, sy) .. " and " .. at(gx, gy) .. " are not"
+    end
+    local d = math.abs(gx - sx) + math.abs(gy - sy)
+    if d == 0 then
+        return nil, "Prototype.UndergroundPipe alone needs two different tiles: both ends are " .. at(sx, sy)
+    end
+    local ux = (gx > sx and 1) or (gx < sx and -1) or 0
+    local uy = (gy > sy and 1) or (gy < sy and -1) or 0
+    local dir = (ux == 1 and 4) or (ux == -1 and 12) or (uy == 1 and 8) or 0
+    local reach = o.reach or 10
+    local tiles = d + 1
+    local pairs_needed = math.ceil(tiles / (reach + 1))
+    local placements = {}
+    local first = 0
+    for k = 1, pairs_needed do
+        local span = math.ceil((tiles - first) / (pairs_needed - k + 1))
+        local last = first + span - 1
+        for t = first + 1, last - 1 do
+            if o.crosses and o.crosses({x = sx + ux * t + 0.5, y = sy + uy * t + 0.5}, dir % 8) then
+                return nil, "a pipe-to-ground at " .. at(sx + ux * t, sy + uy * t) .. " lies on the line between "
+                    .. at(sx + ux * first, sy + uy * first) .. " and " .. at(sx + ux * last, sy + uy * last)
+                    .. " in the same axis: the pair would connect to it"
+            end
+        end
+        placements[#placements + 1] = {kind = "in", position = {x = sx + ux * first + 0.5, y = sy + uy * first + 0.5}, dir = dir}
+        placements[#placements + 1] = {kind = "out", position = {x = sx + ux * last + 0.5, y = sy + uy * last + 0.5}, dir = dir}
+        first = last + 1
+    end
+    return {placements = placements, pipes = 0, undergrounds = #placements}
+end
+
+local function is_pipe_to_ground_only(connection_types)
+    return #connection_types == 1 and connection_types[1] == "pipe-to-ground"
+end
+
+local function connect_pipe_to_ground_line(player_index, source_x, source_y, target_x, target_y, dry_run)
+    local player = storage.agent_characters[player_index]
+    local surface = player.surface
+    local function tile(x, y) return {x = math.floor(x) + 0.5, y = math.floor(y) + 0.5} end
+    local plan, why = storage.utils.plan_pipe_to_ground_line{
+        start = tile(source_x, source_y),
+        goal = tile(target_x, target_y),
+        reach = storage.utils.underground_pipe_reach("pipe-to-ground"),
+        crosses = function(p, axis)
+            for _, e in pairs(surface.find_entities_filtered{name = "pipe-to-ground", position = p, radius = 0.4}) do
+                if e.direction % 8 == axis then return true end
+            end
+            return false
+        end,
+    }
+    if not plan then
+        error("\"" .. why .. "\"", 0)
+    end
+    local serialized_entities = {}
+    local counter_state = {place_counter = 0}
+    for _, p in ipairs(plan.placements) do
+        local d = p.kind == "in" and p.dir or (p.dir + 8) % 16
+        place_at_position(player, "pipe-to-ground", p.position, storage.utils.get_entity_direction("pipe-to-ground", d),
+            serialized_entities, dry_run, counter_state, p.kind == "out")
     end
     return {entities = serialized_entities, connected = not dry_run,
             number_of_entities = counter_state.place_counter, planned = counter_state.planned}
@@ -1554,6 +1671,10 @@ local function connect_entities(player_index, source_x, source_y, target_x, targ
 
         -- Find straight sections suitable for underground entities
         local range = underground_ranges[underground_type]
+        if underground_type == "pipe-to-ground" then
+            -- the game's reach: an exit up to max_underground_distance tiles past its entrance
+            range = storage.utils.underground_pipe_reach(underground_type)
+        end
         local straight_sections = find_straight_sections(path, 4)
 
         -- Track remaining underground sections we can create
@@ -2302,7 +2423,9 @@ end
 local function connect_entities_with_validation(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, dry_run)
     local path = storage.paths[path_handle]
     local pole_type = wire_reach[connection_types[1]] and connection_types[1] or nil
-    if path == nil and not pole_type then
+    -- (pipes without a path, handle -1: an existing connection is still found, then
+    -- the tile-by-tile route is used)
+    if path == nil and not pole_type and not is_pipe_route(connection_types) then
         error("No path found")
     end
     
@@ -2426,6 +2549,10 @@ local function connect_entities_with_validation(player_index, source_x, source_y
                              path, pole_type, dry_run)
     end
 
+    if path == nil then
+        error("No path found")
+    end
+
     -- If validation passes or it's not a belt, proceed with normal connection
     return connect_entities(player_index, source_x, source_y, target_x, target_y,
                           path_handle, connection_types, dry_run)
@@ -2463,6 +2590,9 @@ storage.actions.connect_entities = function(player_index, source_x, source_y, ta
     -- One pass. A pipe route the game's walking path cannot give (no path, a path
     -- over cliffs, a timed-out search) is searched tile by tile instead.
     local function pass(dry, by_tiles)
+        if is_pipe_to_ground_only(connection_types) then
+            return connect_pipe_to_ground_line(player_index, source_x, source_y, target_x, target_y, dry), false
+        end
         if by_tiles then
             return connect_pipes_by_tiles(player_index, source_x, source_y, target_x, target_y, connection_types, dry), true
         end

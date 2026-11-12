@@ -87,8 +87,13 @@ Key points:
 
 - Respects fluid input/output connection points
 - Pipe groups track fluid system IDs
-- If the route along the game's walking path cannot be built (it leads over a cliff, the path search times out, or there is none), the tool searches a route tile by tile. Pipes go only on tiles where a pipe can be built, and not beside pipes of another fluid system. With `Prototype.UndergroundPipe` among the connection types, a pipe-to-ground pair carries the pipe under anything in its way (cliffs, water, trees, buildings) when the exit is at most 9 tiles past the entrance, in a straight line.
-- With `Prototype.UndergroundPipe` among the connection types, straight runs also use the pipe-to-ground you hold, as many pairs as your inventory allows.
+- What each connection type builds:
+  - `Prototype.Pipe`: pipes only. Pipe-to-ground in your inventory is not used. The route follows the game's walking path; if that cannot be built (it leads over a cliff, the path search times out, or there is none), the tool searches a route tile by tile.
+  - `{Prototype.Pipe, Prototype.UndergroundPipe}`: the route is searched tile by tile (if that finds none, it follows the game's walking path, as with `Prototype.Pipe`). Every straight run of the route becomes pipe-to-ground pairs, back to back, each exit up to 10 tiles past its entrance (the game's maximum), as long as the pipe-to-ground you hold last. Surface pipes remain at the two ends, at each turn, on straight runs shorter than 4 tiles, and wherever the pipe-to-ground you hold have run out. A pair also carries the pipe under anything in its way (cliffs, water, trees, buildings, other pipes).
+  - `Prototype.UndergroundPipe` alone: pipe-to-ground pairs only, back to back, in a straight line from the start tile to the end tile (both must have the same x or the same y), as few pairs as the 10-tile reach allows. The first entrance connects above ground only to the tile behind it (on the side away from the end tile), and the last exit only to the tile in front of it (beyond the end tile).
+- The tile-by-tile search puts pipes only on tiles where a pipe can be built, and not beside pipes of another fluid system.
+- A route uses no more pipe-to-ground than you hold, except when crossing an obstacle needs more and no route of plain pipes is found: then nothing is built, and the error (or the dry run's `missing`) says how many pipe-to-ground the route needs.
+- When a route has room for more pipe-to-ground pairs than you hold, the returned PipeGroup's `notes` (and the dry run's `notes`) say how many it has room for, how many you hold, and how many it uses.
 
 ## Power Pole Connections
 
@@ -237,12 +242,13 @@ The `ConnectDryRun` has (as attributes, or like a dict: `plan["route_found"]`):
 - `entities`: what would be placed, in route order, each with `name`, `position` and `direction` (None for entities without one), and for underground belts and pipe-to-ground `type`: "input" for the entrance, "output" for the exit. `direction` is the one to pass to `place_entity` or `place_layout` to build that same entity. Printing shows the first 40
 - `required`, `in_inventory`, `missing`: per item name, how many the route places, how many you hold, and how many you are short of; `enough_in_inventory` is True when nothing is missing
 - `belt_changes`: belts already on the map that the route would turn (only possible with `allow_belt_changes=True`)
+- `notes`: facts about the route, e.g. that it has room for more pipe-to-ground pairs than you hold
 - `reason`: when `route_found` is False, the message the real call would fail with; `blocked_at`: the position that message names, else None
 - `number_of_entities_required` (None when no route was found), `number_of_entities_available`: the total to place, and how many of the connecting item you hold
 
 What a dry run covers:
 
-- The route is found on the map as it is now, with the items you hold now: with underground belts or pipes among the connection types, it uses as many underground sections as your inventory allows, as the real call does.
+- The route is found on the map as it is now, with the items you hold now: with underground belts or `Prototype.UndergroundPipe` among the connection types, it uses as many underground sections as your inventory allows, as the real call does.
 - With two waypoints, the dry run and the real call use the same route search on the same map.
 - With more than two waypoints, each leg is checked separately on the map as it is now, and a tile two legs share is listed once. The real call builds leg by leg and starts each later leg from what the leg before built, so its later legs can use other tiles than the dry run lists.
 - With electric poles, `entities` lists every pole the real call places. The real call stops early if a pole it places joins the target pole's network, and can add one pole next to a target machine the line did not cover, so its count can differ by that.

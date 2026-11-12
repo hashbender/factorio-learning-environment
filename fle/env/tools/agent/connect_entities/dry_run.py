@@ -69,6 +69,7 @@ def success(
     inventory: Dict[str, int],
     available: int,
     belt_changes: Optional[List[str]] = None,
+    notes: Optional[List[str]] = None,
 ) -> ConnectDryRun:
     required: Dict[str, int] = {}
     for e in entities:
@@ -87,6 +88,7 @@ def success(
         enough_in_inventory=not missing,
         entities=entities,
         belt_changes=list(belt_changes or []),
+        notes=list(notes or []),
     )
 
 

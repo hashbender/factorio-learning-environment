@@ -779,6 +779,7 @@ class ConnectDryRun(BaseModel):
     enough_in_inventory: bool = False
     entities: List[PlannedEntity] = []
     belt_changes: List[str] = []
+    notes: List[str] = []
     reason: Optional[str] = None
     blocked_at: Optional[Position] = None
 
@@ -804,6 +805,8 @@ class ConnectDryRun(BaseModel):
         ]
         if self.belt_changes:
             parts.append(f"belt_changes={self.belt_changes}")
+        if self.notes:
+            parts.append(f"notes={self.notes}")
         shown = [repr(e) for e in self.entities[:40]]
         more = len(self.entities) - len(shown)
         if more > 0:
@@ -1349,6 +1352,8 @@ class PipeGroup(EntityGroup):
     fluid: Optional[str] = None
     amount: Optional[float] = None
     capacity: Optional[float] = None
+    # set by connect_entities, e.g. when the route used fewer pipe-to-ground than it had room for
+    notes: List[str] = []
 
     def __repr__(self) -> str:
         fluid_suffix = ""
@@ -1361,7 +1366,8 @@ class PipeGroup(EntityGroup):
             positions = positions[:3] + ["..."] + positions[-3:]
         pipe_summary = f"[{','.join(positions)}]"
 
-        return f"\n\tPipeGroup(fluid_system={self.id}, {fluid_suffix}position={self.position}, status={self.status}, pipes={pipe_summary})"
+        notes = f", notes={self.notes}" if self.notes else ""
+        return f"\n\tPipeGroup(fluid_system={self.id}, {fluid_suffix}position={self.position}, status={self.status}, pipes={pipe_summary}{notes})"
 
     def __str__(self):
         return self.__repr__()

@@ -65,6 +65,12 @@ drill = place_entity(
 print(f"Placed drill at {drill.position} to mine iron ore")
 ```
 
+### Pipe-to-ground
+
+- For `Prototype.UndergroundPipe`, `direction` is the side its underground connection faces, towards the other end of its pair. Its above-ground connection is on the opposite side.
+- Two pipe-to-ground on the same row or column whose underground sides face each other connect underground when they are at most 10 tiles apart (up to 9 tiles between them), e.g. `Direction.RIGHT` at (x, y) and `Direction.LEFT` at (x + 10, y).
+- The returned entity, and `get_entities` / `get_entity`, report a pipe-to-ground's `direction` as the game stores it: the side of its above-ground connection, the opposite of the `direction` given to `place_entity`.
+
 ## Best Practices
 
 - Use nearest buildable to ensure safe placement

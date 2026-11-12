@@ -14,7 +14,7 @@ result = place_layout(layout, Position(x=10.5, y=4.5), copies=3, offset=Position
 print(result)
 ```
 
-Entry keys: `entity` (Prototype, required), `x`, `y` (default 0) or `position` (relative Position), `direction` (Direction, default UP), `recipe` (assembling machines; Prototype or RecipeName), `filter` (inserters with filter slots; an item Prototype), `type` (underground belts: `"input"` or `"output"`; `direction` is the belt's travel direction for both).
+Entry keys: `entity` (Prototype, required), `x`, `y` (default 0) or `position` (relative Position), `direction` (Direction, default UP), `recipe` (assembling machines; Prototype or RecipeName), `filter` (inserters with filter slots; an item Prototype), `type` (underground belts: `"input"` or `"output"`; `direction` is the belt's travel direction for both). For pipe-to-ground there is no `type`; `direction` is the side its underground connection faces, as with `place_entity`.
 
 Or a text grid, one character per tile, with a `legend`. The grid's top-left tile is the tile containing `position`; `.` and space are empty tiles; empty lines before the first row and after the last are ignored. A legend character marks an entity's top-left tile; the rest of its footprint may repeat the same character or be empty (`"FF\nFF"` is one 2x2 furnace). Legend values: a Prototype, `(Prototype, Direction)`, or a dict like an entry without `x`/`y`.
 
