@@ -9,6 +9,7 @@ from pydantic import (
     model_validator,
     model_serializer,
 )
+from fle.env.belt_lanes import both_lanes
 
 
 class Layer(IntFlag):
@@ -690,18 +691,8 @@ class TransportBelt(Entity):
     is_source: bool = False
     _height: float = 1
     _width: float = 1
-
-    @field_validator("inventory", mode="before")
-    @classmethod
-    def _both_lanes(cls, v):
-        """Both lanes are always present; an empty lane is an empty Inventory."""
-        if v is None or isinstance(v, list):
-            v = {}
-        if isinstance(v, dict):
-            v = dict(v)
-            v["left"] = v.get("left") or {}
-            v["right"] = v.get("right") or {}
-        return v
+    # both lanes always present (fle/env/belt_lanes.py)
+    locals()["_both_lanes"] = field_validator("inventory", mode="before")(classmethod(both_lanes))
 
     def __repr__(self):
         return f"Belt(({self.position})->, direction={self.direction})"
