@@ -1558,6 +1558,411 @@ local function connect_pipe_to_ground_line(player_index, source_x, source_y, tar
             number_of_entities = counter_state.place_counter, planned = counter_state.planned}
 end
 
+-- ---------------------------------------------------------------------------
+-- Belts: a tile-by-tile route search, used when the game's walking path gives no
+-- buildable route (its path search treats belts already on the map as walls, so a
+-- belt line could not cross another one). Belts go on buildable tiles that no belt
+-- already on the map feeds into. With an underground belt among the connection types,
+-- an underground pair carries the line under anything in its way (other belts,
+-- buildings, water) up to the underground belt's reach. Belts already on the map are
+-- not changed: a pair never spans, or stands inside, a tunnel of the same underground
+-- belt on the same axis (the game would re-pair it).
+-- ---------------------------------------------------------------------------
+local BELT_TIERS = {"transport-belt", "fast-transport-belt", "express-transport-belt"}
+local UNDERGROUND_BELT_TIERS = {"underground-belt", "fast-underground-belt", "express-underground-belt"}
+local UNDERGROUND_BELT_OF = {["transport-belt"] = "underground-belt",
+    ["fast-transport-belt"] = "fast-underground-belt", ["express-transport-belt"] = "express-underground-belt"}
+local BELT_DIRECTION_NAMES = {[0] = "UP", [4] = "RIGHT", [8] = "DOWN", [12] = "LEFT"}
+
+storage.utils.underground_belt_reach = function(name)
+    return prototype_number(name, function(p) return p.max_underground_distance end)
+        or ({["underground-belt"] = 5, ["fast-underground-belt"] = 7, ["express-underground-belt"] = 9})[name] or 5
+end
+
+-- Plan a belt route. Pure: the map is only seen through the callbacks.
+--   o.start, o.goal          tile centres (always usable: they are the ends)
+--   o.start_open, o.goal_open  true if that end tile is empty, so an underground belt may stand there
+--   o.free(p)                true if a belt can be built on tile p
+--   o.has_underground(p)     true if tile p holds an underground belt of the route's name (a tunnel must not pass one)
+--   o.can_jump(a, b, d)      optional: false if an underground pair from a to b (direction d) may not be built
+--   o.max_jump               tiles from an underground entrance to its exit (0 = no underground belts)
+--   o.max_expand, o.margin   search limits
+-- Returns {placements = {{kind = "belt"|"in"|"out", position = p, dir = d}}, belts, undergrounds}, where d is
+-- the direction the entity faces (items leave it that way), or nil, a reason and the blocked tile nearest the
+-- goal that the search reached (nil if it reached none).
+storage.utils.plan_belt_route = function(o)
+    local sx, sy = math.floor(o.start.x), math.floor(o.start.y)
+    local gx, gy = math.floor(o.goal.x), math.floor(o.goal.y)
+    local manhattan = math.abs(gx - sx) + math.abs(gy - sy)
+    local margin = o.margin or (32 + math.floor(manhattan / 4))
+    local x0, x1 = math.min(sx, gx) - margin, math.max(sx, gx) + margin
+    local y0, y1 = math.min(sy, gy) - margin, math.max(sy, gy) + margin
+    local max_jump = o.max_jump or 0
+    local max_expand = o.max_expand or 200000
+    local function tkey(x, y) return (x + 1048576) * 2097152 + (y + 1048576) end
+    local function centre(x, y) return {x = x + 0.5, y = y + 0.5} end
+    local function h(x, y) return math.abs(gx - x) + math.abs(gy - y) end
+    local is_start = function(x, y) return x == sx and y == sy end
+    local is_goal = function(x, y) return x == gx and y == gy end
+    local free_cache = {}
+    local nearest_block = nil
+    local function free(x, y)
+        if is_start(x, y) or is_goal(x, y) then return true end
+        local k = tkey(x, y)
+        local v = free_cache[k]
+        if v == nil then
+            v = o.free(centre(x, y)) and true or false
+            free_cache[k] = v
+            if not v and (not nearest_block or h(x, y) < nearest_block.h) then
+                nearest_block = {x = x, y = y, h = h(x, y)}
+            end
+        end
+        return v
+    end
+    local W = 1.5  -- weighted search: near-shortest routes, few tiles searched
+
+    local heap = {}
+    local function less(a, b) return a[1] < b[1] or (a[1] == b[1] and a[2] < b[2]) end
+    local function push(f, hh, key)
+        local n = #heap + 1
+        heap[n] = {f, hh, key}
+        while n > 1 do
+            local p = math.floor(n / 2)
+            if not less(heap[n], heap[p]) then break end
+            heap[p], heap[n] = heap[n], heap[p]
+            n = p
+        end
+    end
+    local function pop()
+        local top = heap[1]
+        local last = heap[#heap]
+        heap[#heap] = nil
+        if #heap > 0 then
+            heap[1] = last
+            local n = 1
+            while true do
+                local l, r, m = 2 * n, 2 * n + 1, n
+                if l <= #heap and less(heap[l], heap[m]) then m = l end
+                if r <= #heap and less(heap[r], heap[m]) then m = r end
+                if m == n then break end
+                heap[m], heap[n] = heap[n], heap[m]
+                n = m
+            end
+        end
+        return top
+    end
+
+    -- state: tile + arrival direction + how it was reached (0 belt step, 1 underground exit, 2 start)
+    local function skey(x, y, d, fl) return (tkey(x, y) * 16 + (d or 16) / 4) * 4 + fl end
+    local nodes = {}
+    local closed = {}
+    local start_key = skey(sx, sy, nil, 2)
+    nodes[start_key] = {x = sx, y = sy, d = nil, fl = 2, g = 0}
+    push(W * h(sx, sy), h(sx, sy), start_key)
+    local expanded = 0
+    local found = nil
+    -- a route never comes back to a tile it has used (the last 16 tiles are checked;
+    -- the turn and tunnel rules can otherwise make a short loop the cheapest way)
+    local function on_route(key, x, y)
+        local steps = 0
+        while key and steps < 16 do
+            local m = nodes[key]
+            if m.x == x and m.y == y then return true end
+            key = m.parent
+            steps = steps + 1
+        end
+        return false
+    end
+    local function relax(key, x, y, d, fl, g, parent, jump)
+        local n = nodes[key]
+        if n and n.g <= g then return end
+        if on_route(parent, x, y) then return end
+        nodes[key] = {x = x, y = y, d = d, fl = fl, g = g, parent = parent, jump = jump}
+        push(g + W * h(x, y), h(x, y), key)
+    end
+    local function in_box(x, y) return x >= x0 and x <= x1 and y >= y0 and y <= y1 end
+    while #heap > 0 do
+        local key = pop()[3]
+        if not closed[key] then
+            closed[key] = true
+            local n = nodes[key]
+            if is_goal(n.x, n.y) then found = key; break end
+            expanded = expanded + 1
+            if expanded > max_expand then break end
+            -- one tile on (an underground exit sends the items straight on)
+            for _, nd in ipairs(DIR_LIST) do
+                if not (n.fl == 1 and nd ~= n.d) and not (n.d and (nd + 8) % 16 == n.d) then
+                    local v = DIRS[nd]
+                    local x, y = n.x + v[1], n.y + v[2]
+                    if in_box(x, y) and free(x, y) then
+                        relax(skey(x, y, nd, 0), x, y, nd, 0, n.g + 1 + ((n.d and nd ~= n.d) and 0.5 or 0), key, false)
+                    end
+                end
+            end
+            -- under an obstacle: an entrance on this tile, fed straight from behind (or the
+            -- start tile, if empty), the exit up to max_jump tiles on in the same direction
+            local jump_dirs = nil
+            if max_jump >= 2 then
+                if n.fl == 0 then jump_dirs = {n.d}
+                elseif n.fl == 2 and o.start_open then jump_dirs = DIR_LIST end
+            end
+            for _, jd in ipairs(jump_dirs or {}) do
+                local v = DIRS[jd]
+                local blocked = false
+                for k = 1, max_jump do
+                    local x, y = n.x + v[1] * k, n.y + v[2] * k
+                    if not in_box(x, y) then break end
+                    if k >= 2 and blocked and not is_start(x, y) and (o.goal_open or not is_goal(x, y))
+                        and free(x, y)
+                        and (not o.can_jump or o.can_jump(centre(n.x, n.y), centre(x, y), jd)) then
+                        relax(skey(x, y, jd, 1), x, y, jd, 1, n.g + k + 6, key, true)
+                    end
+                    if o.has_underground and o.has_underground(centre(x, y)) then break end
+                    if not free(x, y) then blocked = true end
+                end
+            end
+        end
+    end
+    local at = nearest_block and centre(nearest_block.x, nearest_block.y) or nil
+    if not found then
+        if expanded > max_expand then
+            return nil, "the search gave up after " .. max_expand .. " tiles", at
+        end
+        return nil, "no route within " .. margin .. " tiles of the straight line", at
+    end
+
+    local seq = {}
+    local used = {}
+    local k = found
+    while k do
+        local n = nodes[k]
+        if used[tkey(n.x, n.y)] then
+            return nil, "no route found that does not cross itself", at
+        end
+        used[tkey(n.x, n.y)] = true
+        table.insert(seq, 1, n)
+        k = n.parent
+    end
+    local placements = {}
+    local belts, undergrounds = 0, 0
+    for i, n in ipairs(seq) do
+        local nxt = seq[i + 1]
+        local kind, dir = "belt", (nxt and nxt.d) or n.d or 0
+        if n.jump then kind, dir = "out", n.d end
+        if nxt and nxt.jump then kind, dir = "in", nxt.d end
+        placements[i] = {kind = kind, position = centre(n.x, n.y), dir = dir}
+        if kind == "belt" then belts = belts + 1 else undergrounds = undergrounds + 1 end
+    end
+    return {placements = placements, belts = belts, undergrounds = undergrounds, expanded = expanded}
+end
+
+-- plan_belt_route, using no more underground belts than o.underground_budget (the number
+-- held) when a route without them exists; otherwise the route with them (the item check
+-- then names what it needs).
+storage.utils.plan_belt_route_within_held = function(o)
+    local plan, why, at = storage.utils.plan_belt_route(o)
+    if plan and plan.undergrounds > (o.underground_budget or 0) and (o.max_jump or 0) > 0 then
+        local plain_opts = {}
+        for k, v in pairs(o) do plain_opts[k] = v end
+        plain_opts.max_jump = 0
+        local plain = storage.utils.plan_belt_route(plain_opts)
+        if plain then return plain end
+    end
+    return plan, why, at
+end
+
+local function is_belt_route(connection_types)
+    for _, t in ipairs(connection_types) do
+        if not (t:find("belt") or t:find("splitter")) then return false end
+    end
+    return #connection_types > 0
+end
+
+-- The belt on the map whose output is tile p (a new belt there would join its line), if any
+storage.utils.belt_feeding_tile = function(surface, p)
+    local area = {{p.x - 1.5, p.y - 1.5}, {p.x + 1.5, p.y + 1.5}}
+    for _, e in pairs(surface.find_entities_filtered{area = area, type = {"transport-belt", "underground-belt", "splitter"}}) do
+        local v = DIRS[e.direction]
+        if v then
+            local outs = {}
+            if e.type == "transport-belt" or (e.type == "underground-belt" and e.belt_to_ground_type == "output") then
+                outs = {{e.position.x + v[1], e.position.y + v[2]}}
+            elseif e.type == "splitter" then
+                local px, py = -v[2] * 0.5, v[1] * 0.5
+                outs = {{e.position.x + px + v[1], e.position.y + py + v[2]},
+                        {e.position.x - px + v[1], e.position.y - py + v[2]}}
+            end
+            for _, q in ipairs(outs) do
+                if math.abs(q[1] - p.x) < 0.1 and math.abs(q[2] - p.y) < 0.1 then return e end
+            end
+        end
+    end
+    return nil
+end
+
+local function describe_belt_block(surface, force, name, p)
+    local function at(e) return "(" .. e.position.x .. ", " .. e.position.y .. ")" end
+    if buildable_at(surface, force, name, p, 0.5) then
+        local feeder = storage.utils.belt_feeding_tile(surface, p)
+        if feeder then
+            return "the " .. feeder.name .. " at " .. at(feeder) .. " facing "
+                .. (BELT_DIRECTION_NAMES[feeder.direction] or tostring(feeder.direction))
+                .. " outputs onto this tile (a belt there would join that line)"
+        end
+    end
+    local area = {{p.x - 0.49, p.y - 0.49}, {p.x + 0.49, p.y + 0.49}}
+    local names = {}
+    for _, e in pairs(surface.find_entities_filtered{area = area}) do
+        local t = e.valid and e.type
+        if t and t ~= "character" and t ~= "resource" and t ~= "item-entity" and t ~= "corpse" and #names < 3 then
+            local s = e.name
+            if t == "transport-belt" or t == "underground-belt" or t == "splitter" then
+                s = s .. " facing " .. (BELT_DIRECTION_NAMES[e.direction] or tostring(e.direction))
+                if t == "underground-belt" then s = s .. " (" .. e.belt_to_ground_type .. ")" end
+            end
+            table.insert(names, s)
+        end
+    end
+    if #names > 0 then return "blocked by " .. table.concat(names, ", ") end
+    local tile = surface.get_tile(p.x, p.y)
+    return "the tile there (" .. (tile and tile.valid and tile.name or "unknown") .. ") does not allow it"
+end
+
+local function connect_belts_by_tiles(player_index, source_x, source_y, target_x, target_y, connection_types, dry_run)
+    local player = storage.agent_characters[player_index]
+    local surface = player.surface
+    local force = player.force
+    local function tile(x, y) return {x = math.floor(x) + 0.5, y = math.floor(y) + 0.5} end
+    local start, goal = tile(source_x, source_y), tile(target_x, target_y)
+    local inventory = player.get_inventory(defines.inventory.character_main)
+    local function held(name) return inventory and inventory.get_item_count(name) or 0 end
+
+    -- the surface belt (the cheapest tier listed) and the underground belt of the route
+    local listed = {}
+    for _, t in ipairs(connection_types) do listed[t] = true end
+    local plain = nil
+    for _, t in ipairs(BELT_TIERS) do if listed[t] and not plain then plain = t end end
+    local underground = nil
+    local listed_undergrounds = {}
+    for _, t in ipairs(UNDERGROUND_BELT_TIERS) do
+        if listed[t] then table.insert(listed_undergrounds, t) end
+    end
+    if #listed_undergrounds > 0 then
+        local matching = plain and UNDERGROUND_BELT_OF[plain]
+        if matching and listed[matching] and held(matching) >= 2 then underground = matching end
+        for _, t in ipairs(listed_undergrounds) do
+            if not underground and held(t) >= 2 then underground = t end
+        end
+        if not underground then
+            underground = (matching and listed[matching]) and matching or listed_undergrounds[1]
+        end
+    end
+    plain = plain or default_connect_types[underground] or "transport-belt"
+    local reach = underground and storage.utils.underground_belt_reach(underground) or 0
+
+    local function inside_tunnel(t, vertical)
+        local area = vertical and {{t.x - 0.4, t.y - reach - 0.5}, {t.x + 0.4, t.y + reach + 0.5}}
+            or {{t.x - reach - 0.5, t.y - 0.4}, {t.x + reach + 0.5, t.y + 0.4}}
+        for _, u in pairs(surface.find_entities_filtered{name = underground, area = area}) do
+            local w = u.neighbours
+            if w and w.valid then
+                local a, b = u.position, w.position
+                if vertical and math.abs(a.x - t.x) < 0.1 and math.abs(b.x - t.x) < 0.1
+                    and (a.y - t.y) * (b.y - t.y) < 0 then return true end
+                if not vertical and math.abs(a.y - t.y) < 0.1 and math.abs(b.y - t.y) < 0.1
+                    and (a.x - t.x) * (b.x - t.x) < 0 then return true end
+            end
+        end
+        return false
+    end
+    local function open(p)
+        return buildable_at(surface, force, underground or plain, p, 0.5)
+    end
+    local under_cache = {}
+
+    local route = {
+        start = start,
+        goal = goal,
+        start_open = underground ~= nil and open(start),
+        goal_open = underground ~= nil and open(goal),
+        free = function(p)
+            if not buildable_at(surface, force, plain, p, 0.5) then return false end
+            return storage.utils.belt_feeding_tile(surface, p) == nil
+        end,
+        has_underground = underground and function(p)
+            local k = p.x .. "," .. p.y
+            if under_cache[k] == nil then
+                under_cache[k] = #surface.find_entities_filtered{name = underground, position = p, radius = 0.4} > 0
+            end
+            return under_cache[k]
+        end or nil,
+        can_jump = underground and function(a, b, d)
+            local vertical = (d == 0 or d == 8)
+            return not inside_tunnel(a, vertical) and not inside_tunnel(b, vertical)
+        end or nil,
+        max_jump = reach,
+        underground_budget = underground and held(underground) or 0,
+    }
+    local plan, why, blocked = storage.utils.plan_belt_route_within_held(route)
+    if not plan then
+        local msg = "Failed to find a path. No belt route from (" .. start.x .. ", " .. start.y .. ") to ("
+            .. goal.x .. ", " .. goal.y .. "): " .. why .. "."
+        if blocked then
+            msg = msg .. " The blocked tile nearest the target that the search reached: cannot place " .. plain
+                .. " at (" .. blocked.x .. ", " .. blocked.y .. "): " .. describe_belt_block(surface, force, plain, blocked) .. "."
+        end
+        if underground then
+            msg = msg .. " Underground belts: " .. underground .. " allowed (an exit at most " .. reach
+                .. " tiles past its entrance, so at most " .. (reach - 1) .. " tiles crossed; you hold "
+                .. held(underground) .. ")."
+        else
+            msg = msg .. " Underground belts: not allowed (connection_type has no underground belt)."
+        end
+        error("\"" .. msg .. "\"", 0)
+    end
+
+    local serialized_entities = {}
+    local counter_state = {place_counter = 0}
+    -- as the walking-path route does: a belt of the route's names already at the start
+    -- is turned to face along the route (a dry run reports it instead)
+    local placements = plan.placements
+    if #placements > 1 then
+        local initial_dir = placements[1].dir
+        local here = surface.find_entities_filtered{position = {x = source_x, y = source_y}, name = connection_types, force = "player"}
+        local source_belt = here[1]
+        if source_belt and source_belt.valid and source_belt.type == "transport-belt" and source_belt.direction ~= initial_dir then
+            if dry_run then
+                counter_state.would_turn = {name = "\"" .. source_belt.name .. "\"", x = source_belt.position.x,
+                    y = source_belt.position.y, from = source_belt.direction, to = initial_dir}
+            else
+                source_belt.direction = initial_dir
+                table.insert(serialized_entities, storage.utils.serialize_entity(source_belt))
+            end
+        end
+    end
+    local first_belt = nil
+    for _, p in ipairs(placements) do
+        local name = p.kind == "belt" and plain or underground
+        local placed = place_at_position(player, name, p.position, storage.utils.get_entity_direction(name, p.dir),
+            serialized_entities, dry_run, counter_state, p.kind == "out")
+        if placed and placed.valid and placed.type == "transport-belt" and not first_belt then first_belt = placed end
+    end
+    if not dry_run and first_belt then
+        -- the whole belt line, as the walking-path route returns it, plus what was placed
+        local group = serialize_belt_group(first_belt)
+        if group then
+            local seen = {}
+            for _, s in ipairs(group) do seen[tostring(s.name) .. ":" .. tostring(s.position and s.position.x) .. ":" .. tostring(s.position and s.position.y)] = true end
+            for _, s in ipairs(serialized_entities) do
+                if not seen[tostring(s.name) .. ":" .. tostring(s.position and s.position.x) .. ":" .. tostring(s.position and s.position.y)] then table.insert(group, s) end
+            end
+            serialized_entities = group
+        end
+    end
+    return {entities = serialized_entities, connected = not dry_run, number_of_entities = counter_state.place_counter,
+            planned = counter_state.planned, would_turn = counter_state.would_turn}
+end
+
 local function connect_entities(player_index, source_x, source_y, target_x, target_y, path_handle, connection_types, dry_run)
     local counter_state = {place_counter = 0}
     local player = storage.agent_characters[player_index]
@@ -2590,6 +2995,10 @@ storage.actions.connect_entities = function(player_index, source_x, source_y, ta
     -- One pass. A pipe route the game's walking path cannot give (no path, a path
     -- over cliffs, a timed-out search) is searched tile by tile instead.
     local function pass(dry, by_tiles)
+        -- belts without a path (handle -1): the tile-by-tile route
+        if path_handle == -1 and is_belt_route(connection_types) then
+            return connect_belts_by_tiles(player_index, source_x, source_y, target_x, target_y, connection_types, dry), false
+        end
         if is_pipe_to_ground_only(connection_types) then
             return connect_pipe_to_ground_line(player_index, source_x, source_y, target_x, target_y, dry), false
         end

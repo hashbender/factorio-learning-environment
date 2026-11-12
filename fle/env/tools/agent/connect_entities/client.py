@@ -1173,7 +1173,8 @@ class ConnectEntities(Tool):
                     dry_run,
                 )
 
-                if not result.is_success:
+                timed_out = "path search timed out" in str(result.error_message or "")
+                if not result.is_success and not timed_out:
                     # Retry with modified parameters for belts
                     source_pos_adjusted = self._adjust_belt_position(
                         source_pos, source_entity
@@ -1192,7 +1193,19 @@ class ConnectEntities(Tool):
                     )
                     if adjusted_result.is_success:
                         result = adjusted_result
-                    pass
+
+                if not result.is_success and not _is_item_shortage(result.error_message):
+                    # The game's path search treats belts already on the map as walls:
+                    # search the route tile by tile instead (path handle -1). Underground
+                    # belts among the connection types carry it under them; its error
+                    # names the blocked tile nearest the target.
+                    result = self._tile_route(
+                        source_pos,
+                        target_pos,
+                        connection_type_names_values,
+                        num_available,
+                        dry_run,
+                    )
 
             case _:  # Power poles
                 # A near-straight line of poles at full wire reach, built on tiles
