@@ -179,3 +179,46 @@ def test_empty_source_into_a_machine_names_what_the_machine_takes():
         _resolver().check_for_recipe_requirement(refinery, [])
     msg = str(e.value)
     assert "takes ['crude-oil']" in msg and "from a fluid output of the source" in msg
+
+
+def _fallback_tool(fallback_answer):
+    tool = ConnectEntities.__new__(ConnectEntities)
+    tool._protected_belts = None
+    tool._refresh_entity = lambda e: e
+    tool.resolvers = {ConnectionType.FLUID: _resolver()}
+    tool._cliffs_between = lambda a, b: ""
+    tool.get_error_message = lambda m: m
+
+    def no_route(*a, **k):
+        raise Exception("No pipe route from (0.5, -3.5) to (18.5, 0.5): no buildable route")
+
+    tool._create_connection = no_route
+    tool._create_modified_straight_connection = lambda *a, **k: fallback_answer
+    existing = []
+    tool._get_existing_connection_group = lambda *a, **k: existing.append(a) or "some group near the target"
+    return tool, existing
+
+
+def test_real_call_fails_like_the_dry_run_when_the_port_fallback_finds_nothing():
+    refinery = _refinery([IndexedPosition(x=0.5, y=-2.5, type="petroleum-gas")])
+    tank = _tank(20.5, 0.5, [Position(x=18.5, y=0.5)])
+    types = {Prototype.Pipe, Prototype.UndergroundPipe}
+    messages = []
+    for dry in (True, False):
+        tool, existing = _fallback_tool(None)
+        with pytest.raises(Exception) as e:
+            tool._connect_pair_of_waypoints(refinery, tank, connection_types=types, dry_run=dry)
+        assert existing == []  # no unrelated group returned as success
+        messages.append(str(e.value))
+    assert messages[0] == messages[1]
+    assert "No pipe route" in messages[1]
+
+
+def test_real_call_still_returns_what_the_port_fallback_built():
+    refinery = _refinery([IndexedPosition(x=0.5, y=-2.5, type="petroleum-gas")])
+    tank = _tank(20.5, 0.5, [Position(x=18.5, y=0.5)])
+    tool, _ = _fallback_tool(["built group"])
+    got = tool._connect_pair_of_waypoints(
+        refinery, tank, connection_types={Prototype.Pipe, Prototype.UndergroundPipe}, dry_run=False
+    )
+    assert got == "built group"
