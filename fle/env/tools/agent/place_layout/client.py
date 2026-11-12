@@ -332,21 +332,28 @@ class PlaceLayout(Tool):
         walker = self._walker()
         stop_reason = None
         where = here
+        lost = False  # a walk failed: where the character stands is not known here
+        unreached = []  # stops whose walk failed; the others are still built
         for n, s in enumerate(ordered):
             if max_seconds is not None:
                 dist = math.hypot(s["x"] - where[0], s["y"] - where[1])
                 if time.monotonic() - t0 + dist / _TILES_PER_SECOND > max_seconds:
                     stop_reason = f"stopped before stop {n + 1} of {len(ordered)}: max_seconds={max_seconds} reached"
                     break
-            if math.hypot(s["x"] - where[0], s["y"] - where[1]) > 0.5:
+            if lost or math.hypot(s["x"] - where[0], s["y"] - where[1]) > 0.5:
                 try:
                     p = walker(ent.Position(x=s["x"], y=s["y"]))
                     where = (float(p.x), float(p.y))
+                    lost = False
                 except Exception as exc:  # noqa: BLE001
-                    stop_reason = (
-                        f"could not walk to stop {n + 1} at ({s['x']}, {s['y']}): {exc}"
-                    )
-                    break
+                    # Skip this stop's entities (each gets the reason) and go on to the next stop.
+                    why = f"could not walk to stop {n + 1} at ({s['x']}, {s['y']}): {exc}"
+                    for i in s["entries"]:
+                        if entries[i].get("status") == "not placed":
+                            entries[i]["reason"] = why
+                    unreached.append(n + 1)
+                    lost = True
+                    continue
             batch = [
                 {
                     k: entries[i][k]
@@ -382,7 +389,7 @@ class PlaceLayout(Tool):
             self.game_state.player_location = ent.Position(x=where[0], y=where[1])
         if stop_reason:
             for e in entries.values():
-                if e.get("status") == "not placed":
+                if e.get("status") == "not placed" and not e.get("reason"):
                     e["reason"] = stop_reason
         tick1 = self._tick()
         ticks = (tick1 - int(tick0)) if (tick1 is not None and tick0 is not None) else 0
@@ -393,7 +400,16 @@ class PlaceLayout(Tool):
         ]
         reason = None
         if bad:
+            why = []
+            if unreached:
+                why.append(
+                    f"could not walk to stop{'s' if len(unreached) > 1 else ''} "
+                    + ", ".join(str(k) for k in unreached)
+                    + f" of {len(ordered)}"
+                )
+            if stop_reason:
+                why.append(stop_reason)
             reason = f"{len(bad)} of {len(entries)} entities were not placed" + (
-                f" ({stop_reason})" if stop_reason else ""
+                f" ({'; '.join(why)})" if why else ""
             )
         return result(not bad, reason, ticks=ticks, where=where)

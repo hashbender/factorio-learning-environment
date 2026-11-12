@@ -574,6 +574,23 @@ def test_client_partial_when_a_walk_fails_and_rerun_finishes(lua):
     assert res2.ok and res2.placed == len(left) and res2.already_built == 36 - len(left)
 
 
+def test_client_skips_an_unreachable_stop_and_builds_the_next(lua):
+    """A failed walk used to end the call: every later stop stayed unbuilt."""
+    far = Position(x=10, y=-20)
+    tool = _tool(lua, walk_fails_at=2)
+    res = tool(COLUMN, far, copies=30, offset=Position(x=0, y=2))
+    n = len(res.stops)
+    assert n >= 3
+    assert len(tool.walks) == n  # it walked to every stop, the failed one included
+    left = [e for e in res.entries if e.status == "not placed"]
+    assert left and res.placed == 90 - len(left)
+    assert all(e.reason.startswith("could not walk to stop 2 at (") for e in left)
+    assert all("Could not get path" in e.reason for e in left)
+    assert res.reason == f"{len(left)} of 90 entities were not placed (could not walk to stop 2 of {n})"
+    # the character ends at the last stop it reached
+    assert res.character_position == Position(x=tool.walks[-1][0], y=tool.walks[-1][1])
+
+
 def test_client_max_seconds_stops_before_walking(lua):
     tool = _tool(lua)
     res = tool(
