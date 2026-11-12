@@ -13,6 +13,8 @@ pickup_entity(
 
 Returns True if pickup was successful.
 
+For an `UndergroundBelt` entity, the tool picks up that end and the underground belt the game links to it as its pair; an end with no pair is picked up alone. The answer is then true and says what was picked up, e.g. `Picked up underground-belt at (6.5, 40.5) and its paired underground-belt at (6.5, 36.5)`.
+
 ### Parameters
 
 - `entity`: Entity/Prototype to pickup

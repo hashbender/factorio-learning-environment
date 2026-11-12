@@ -113,6 +113,23 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
             fits = answer
         end
     end
+    -- The game lets an entity be built over one of the same name (it turns or replaces it,
+    -- e.g. a belt over a belt facing another way); place_entity does not, it fails with
+    -- "entity already exists at the target position".
+    local same = nil
+    if fits then
+        local ok, found = pcall(surface.find_entities_filtered,
+            {area = {{position.x - 0.4, position.y - 0.4}, {position.x + 0.4, position.y + 0.4}}, name = entity})
+        for _, other in pairs(ok and found or {}) do
+            if other.valid and other.name == entity then same = other; break end
+        end
+    end
+    if fits and same then
+        result.blocked_count = 1
+        table.insert(result.blocked_by, {kind = quoted("entity"), name = quoted(same.name), x = same.position.x, y = same.position.y})
+        return finish(false, entity .. " already stands at (" .. same.position.x .. ", " .. same.position.y
+            .. "); place_entity does not build over an entity of the same name (it does not turn or replace it)")
+    end
     if fits then
         return finish(true, nil)
     end
