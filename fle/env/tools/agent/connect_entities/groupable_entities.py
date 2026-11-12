@@ -211,6 +211,10 @@ def consolidate_underground_belts(belt_groups):
                     # Create consolidated underground belt
                     entrance = cast(UndergroundBelt, pair_data["entrance"])
                     exit = cast(UndergroundBelt, pair_data["exit"])
+                    # The pair is found from whichever end comes first in the list: the
+                    # entrance is the end the game calls the input, not the first one.
+                    if not entrance.is_input and exit.is_input:
+                        entrance, exit = exit, entrance
 
                     # Create new underground belt representing the whole section
                     try:
@@ -251,7 +255,9 @@ def consolidate_underground_belts(belt_groups):
                             is_terminus=exit.is_terminus,
                             input_position=entrance.input_position,
                             output_position=exit.position,
-                            connected_to=exit.id,
+                            # The exit is not listed on its own (this entity stands for both
+                            # ends; output_position is the exit's tile), so no id to point at.
+                            connected_to=None,
                             energy=entrance.energy + exit.energy,
                             dimensions=entrance.dimensions,
                             tile_dimensions=entrance.tile_dimensions,
@@ -274,9 +280,9 @@ def consolidate_underground_belts(belt_groups):
                         pass
 
                     # Mark both entrance and exit for removal
-                    exit_idx = group.belts.index(exit)
                     removed_indices.add(i)
-                    removed_indices.add(exit_idx)
+                    removed_indices.add(group.belts.index(entrance))
+                    removed_indices.add(group.belts.index(exit))
                 # continue
 
             if i not in removed_indices:

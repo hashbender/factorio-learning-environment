@@ -28,6 +28,7 @@ The function returns a list of Entity objects that match the specified criteria.
 - If no entities are specified, returns all entities within radius
 - Returns empty list if no matching entities are found
 - The search area is a square centred on `position` with sides of 2 x `radius` (not a circle). An entity is returned when its collision box (slightly smaller than its tiles) overlaps that square, so a multi-tile entity whose centre lies outside the square can be returned, and entities next to `position` are returned too. Results are not sorted by distance.
+- Belts come back grouped as `BeltGroup`s. In a group's `belts`, an underground belt pair is one `UndergroundBelt`: `position` is its input end (entrance), `input_position` the tile feeding it, `output_position` the output end's tile, `is_input` True and `connected_to` None (the output end is not listed on its own). An underground belt whose partner is not in the same group is listed by itself, with `connected_to` = its partner's id.
 - Only entities of your own force are returned.
 
 ## Examples

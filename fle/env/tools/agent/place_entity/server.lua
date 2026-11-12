@@ -106,7 +106,37 @@ local function find_offshore_pump_position(player, center_pos)
     return nil
 end
 
-storage.actions.place_entity = function(player_index, entity, direction, x, y, exact)
+-- Tile offset from an underground belt to the tile behind it (against its travel direction)
+local BEHIND = {
+    [defines.direction.north] = {x = 0, y = 1},
+    [defines.direction.east] = {x = -1, y = 0},
+    [defines.direction.south] = {x = 0, y = -1},
+    [defines.direction.west] = {x = 1, y = 0},
+}
+
+-- Which end ("input" or "output") a new underground belt should be. As when a player places
+-- one: it is the output end when the nearest underground belt of the same name behind it,
+-- travelling the same way and within its reach, is an input end that has no partner yet.
+local function underground_belt_type(surface, prototype, position, direction)
+    local back = BEHIND[direction]
+    if not back then return "input" end
+    local reach = prototype.max_underground_distance or 5
+    for k = 1, reach do
+        local p = {x = position.x + back.x * k, y = position.y + back.y * k}
+        for _, other in pairs(surface.find_entities_filtered{position = p, name = prototype.name}) do
+            if other.valid and other.direction == direction then
+                local partner = other.neighbours
+                if other.belt_to_ground_type == "input" and not (partner and partner.valid) then
+                    return "output"
+                end
+                return "input"
+            end
+        end
+    end
+    return "input"
+end
+
+storage.actions.place_entity = function(player_index, entity, direction, x, y, exact, belt_type)
     -- Ensure we have a valid character, recreating if necessary
     local player = storage.utils.ensure_valid_character(player_index)
     local position = {x = x, y = y}
@@ -149,6 +179,27 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
             local name = entity:gsub(" ", "_"):gsub("-", "_")
             error("\""..name .. " isn't something that exists. Did you make a typo?\"")
         end
+    end
+
+    -- `type` ("input" / "output") is only for underground belts
+    local function validate_belt_type()
+        if belt_type == nil then return end
+        if prototypes.entity[entity].type ~= "underground-belt" then
+            error("\"type (input/output) is only for underground belts, not " .. entity .. "\"")
+        end
+        if belt_type ~= "input" and belt_type ~= "output" then
+            error("\"type must be input or output, not " .. tostring(belt_type) .. "\"")
+        end
+    end
+
+    -- create_entity spec; an underground belt gets its end (input or output)
+    local function build_spec(at)
+        local spec = {name = entity, force = player.force, position = at, direction = entity_direction}
+        local prototype = prototypes.entity[entity]
+        if prototype.type == "underground-belt" then
+            spec.type = belt_type or underground_belt_type(player.surface, prototype, at, entity_direction)
+        end
+        return spec
     end
 
     local function validate_inventory()
@@ -278,12 +329,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
                 end
 
                 if found_position then
-                    local have_built = player.surface.create_entity{
-                        name = entity,
-                        force = player.force,
-                        position = new_position,
-                        direction = entity_direction,
-                    }
+                    local have_built = player.surface.create_entity(build_spec(new_position))
                     if have_built then
                         player.remove_item{name = item_name, count = 1}
                         -- game.print("Placed " .. entity .. " at " .. new_position.x .. ", " .. new_position.y)
@@ -389,12 +435,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
         end
 
         -- Any other ghost under the new entity is removed by the game
-        local have_built = player.surface.create_entity{
-            name = entity,
-            force = player.force,
-            position = position,
-            direction = entity_direction,
-        }
+        local have_built = player.surface.create_entity(build_spec(position))
 
         if have_built then
             player.remove_item{name = item_name, count = 1}
@@ -450,6 +491,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
     -- Main execution flow
     validate_distance()
     validate_entity()
+    validate_belt_type()
     validate_inventory()
     storage.utils.avoid_entity(player_index, entity, position)
 

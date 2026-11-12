@@ -1,4 +1,5 @@
 from time import sleep
+from typing import Optional
 
 from fle.env.entities import Position, Entity
 from fle.env import DirectionInternal, Direction
@@ -22,6 +23,7 @@ class PlaceObject(Tool):
         direction: Direction = Direction.UP,
         position: Position = Position(x=0, y=0),
         exact: bool = True,
+        type: Optional[str] = None,
         # relative=False
     ) -> Entity:
         """
@@ -30,6 +32,9 @@ class PlaceObject(Tool):
         :param direction: Cardinal direction to place
         :param position: Position to place entity
         :param exact: If True, place entity at exact position, else place entity at nearest possible position
+        :param type: underground belts only: "input" or "output" end. Default: "output" when an
+            input end of the same belt with no partner, travelling the same way, is behind it
+            within reach (as the game does for a player), else "input"
         :return: Entity object
         """
 
@@ -55,12 +60,16 @@ class PlaceObject(Tool):
             raise Exception(f"Passed in {entity} argument is not a valid Prototype", e)
 
         factorio_direction = DirectionInternal.to_factorio_direction(direction)
+        belt_type = type
+        if belt_type is not None and belt_type not in ("input", "output"):
+            raise ValueError("type must be 'input' or 'output' (underground belts only)")
+        args = [self.player_index, name, factorio_direction, x, y, exact]
+        if belt_type is not None:
+            args.append(belt_type)
 
         try:
             # If we are in `fast` mode, this is synchronous
-            response, elapsed = self.execute(
-                self.player_index, name, factorio_direction, x, y, exact
-            )
+            response, elapsed = self.execute(*args)
         except Exception as e:
             raise Exception(
                 f"Could not place {name} at ({x}, {y}), {self.get_error_message(str(e))}"
