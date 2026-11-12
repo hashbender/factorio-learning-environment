@@ -420,16 +420,14 @@ class FactorioNamespace:
             n = self._change_print_to_log(n)
             result = self.execute_node(n, eval_dict, parent_node)
 
-            # Handle break/continue propagation
-            if isinstance(result, bool) and not result:
-                if self.loop_context.state in ("BREAK", "CONTINUE"):
-                    return False
-
             # Handle return statement propagation
-            elif (
-                isinstance(result, tuple) and len(result) == 2 and result[0] == "RETURN"
-            ):
+            if isinstance(result, tuple) and len(result) == 2 and result[0] == "RETURN":
                 return result
+
+            # A break or continue ran in this statement, possibly nested in an
+            # if or try: the rest of the body is skipped
+            if self.loop_context.state in ("BREAK", "CONTINUE"):
+                return False
 
         return True
 
@@ -1068,7 +1066,8 @@ class FactorioNamespace:
                 if not handled:
                     raise
             else:
-                if node.orelse:
+                # a try body left by break or continue skips the else clause
+                if node.orelse and self.loop_context.state not in ("BREAK", "CONTINUE"):
                     result = self.execute_body(node.orelse, eval_dict, node)
                     # Handle return statement propagation
                     if (
@@ -1079,7 +1078,13 @@ class FactorioNamespace:
                         return result
             finally:
                 if node.finalbody:
+                    # The finally clause runs in full; a break or continue pending
+                    # from the try body applies after it, unless it sets its own
+                    pending = self.loop_context.state
+                    self.loop_context.state = "NORMAL"
                     result = self.execute_body(node.finalbody, eval_dict, node)
+                    if self.loop_context.state == "NORMAL":
+                        self.loop_context.state = pending
                     # Handle return statement propagation
                     if (
                         isinstance(result, tuple)
