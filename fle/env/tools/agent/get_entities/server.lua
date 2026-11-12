@@ -16,15 +16,19 @@ storage.actions.get_entities = function(player_index, radius, entity_names_json,
         {position.x + radius, position.y + radius}
     }
 
-    local filter = {}
-    if entity_names and #entity_names > 0 then
-        filter = {name = entity_names}
-    end
-
     local entities
 
     if #entity_names > 0 then
-        entities = player.surface.find_entities_filtered{area = area, force = player.force, filter=filter}
+        -- only names the game knows as entities (find_entities_filtered raises on any other name, e.g. an item)
+        local known = {}
+        for _, n in ipairs(entity_names) do
+            if prototypes.entity[n] then table.insert(known, n) end
+        end
+        if #known == 0 then return dump({}) end
+        entity_names = known
+        -- the engine filters by name (find_entities_filtered has no `filter` key: before, every entity in
+        -- the square was serialized and the names were matched only in Python)
+        entities = player.surface.find_entities_filtered{area = area, force = player.force, name = entity_names}
     else
         entities = player.surface.find_entities_filtered{area = area, force = player.force}
     end

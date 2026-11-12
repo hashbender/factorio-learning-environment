@@ -1065,6 +1065,51 @@ storage.utils.status_detail = function(entity)
     return nil
 end
 
+-- Why a connected steam engine / turbine has no steam: the boilers in the fluid network it is connected to
+-- (followed through the connected fluid boxes, at most 400 entities) and their state
+storage.utils.no_steam_detail = function(entity)
+    local seen, queue, boilers, complete = {}, {entity}, {}, true
+    seen[entity.unit_number or 0] = true
+    local head = 1
+    while head <= #queue do
+        if head > 400 then complete = false; break end
+        local e = queue[head]; head = head + 1
+        if e.type == "boiler" then
+            table.insert(boilers, e)
+        else
+            local fb = e.fluidbox
+            for i = 1, (fb and #fb or 0) do
+                local ok_c, conns = pcall(fb.get_connections, i)
+                for _, other in pairs(ok_c and conns or {}) do
+                    local o = other.owner
+                    if o and o.valid and o.unit_number and not seen[o.unit_number] then
+                        seen[o.unit_number] = true
+                        table.insert(queue, o)
+                    end
+                end
+            end
+        end
+    end
+    local function where(b) return "(" .. b.position.x .. ", " .. b.position.y .. ")" end
+    if #boilers == 0 then
+        if complete then return "no steam: no boiler is connected to its steam input" end
+        return "no steam in its input"
+    end
+    local parts = {}
+    for _, b in ipairs(boilers) do
+        if #parts >= 3 then break end
+        local st = storage.utils.entity_status_names(b.status):sub(2, -2)
+        if st == "no_fuel" then
+            table.insert(parts, "boiler at " .. where(b) .. " has no fuel")
+        else
+            table.insert(parts, "boiler at " .. where(b) .. " is " .. st)
+        end
+    end
+    local text = "no steam: " .. table.concat(parts, ", ")
+    if #boilers > #parts then text = text .. " and " .. (#boilers - #parts) .. " more boilers" end
+    return text
+end
+
 storage.utils.serialize_entity = function(entity)
 
     if entity == nil then
@@ -1557,6 +1602,25 @@ storage.utils.serialize_entity = function(entity)
     end
 
 
+    -- The fluids the set recipe takes and makes (MultiFluidHandler.input_fluids / output_fluids), from the
+    -- recipe itself; both empty while no recipe is set
+    if entity.name == "oil-refinery" or entity.name == "chemical-plant" then
+        pcall(function()
+            local recipe = entity.get_recipe()
+            if not recipe then return end
+            local ins, outs = {}, {}
+            for _, ing in pairs(recipe.ingredients or {}) do
+                if ing.type == "fluid" then table.insert(ins, "\"" .. ing.name .. "\"") end
+            end
+            for _, prod in pairs(recipe.products or {}) do
+                if prod.type == "fluid" then table.insert(outs, "\"" .. prod.name .. "\"") end
+            end
+            -- (an empty Lua table would be read back as a dict, not a list: left unset, the field stays [])
+            if #ins > 0 then serialized.input_fluids = ins end
+            if #outs > 0 then serialized.output_fluids = outs end
+        end)
+    end
+
     if entity.type == "storage-tank" then
         -- Get and filter connection points
         local connection_points = storage.utils.get_storage_tank_connection_points(entity)
@@ -1766,24 +1830,49 @@ storage.utils.serialize_entity = function(entity)
             end
         end
 
-        -- Update status based on rocket state
-        if serialized.rocket then
-            if serialized.rocket.launch_progress > 0 then
-                serialized.status = "\"launching_rocket\""
-            elseif serialized.rocket.payload then
-                serialized.status = "\"waiting_to_launch_rocket\""
+        -- The rocket's payload slot (defines.inventory.rocket_silo_rocket)
+        pcall(function()
+            local inv = entity.get_inventory(defines.inventory.rocket_silo_rocket)
+            if inv and not inv.is_empty() then
+                serialized.rocket_inventory = storage.utils.get_contents_compat(inv)
             end
-        elseif serialized.rocket_parts < parts_required then
-            if serialized.rocket_parts > 0 then
+        end)
+
+        -- The silo's own state (entity.rocket_silo_status, by its defines name, e.g. "rocket_ready") and the
+        -- entity status it means: a rocket that is ready waits to be launched, a launch in progress is launching
+        local silo_state = nil
+        pcall(function()
+            local st = entity.rocket_silo_status
+            for k, v in pairs(defines.rocket_silo_status) do
+                if v == st then silo_state = k; break end
+            end
+        end)
+        if silo_state then
+            serialized.rocket_silo_status = "\"" .. silo_state .. "\""
+            local launching = {launch_starting = true, engine_starting = true, arms_retract = true,
+                rocket_flying = true, lights_blinking_close = true, doors_closing = true, launch_started = true}
+            local raising = {create_rocket = true, lights_blinking_open = true, doors_opening = true,
+                doors_opened = true, rocket_rising = true, arms_advance = true}
+            if silo_state == "rocket_ready" then
+                serialized.status = "\"waiting_to_launch_rocket\""
+            elseif launching[silo_state] then
+                serialized.status = "\"launching_rocket\""
+            elseif raising[silo_state] then
                 serialized.status = "\"preparing_rocket_for_launch\""
             end
+        end
+        if serialized.rocket_parts < parts_required and serialized.rocket_parts > 0
+            and (silo_state == nil or silo_state == "building_rocket")
+            and (entity.status == defines.entity_status.working or entity.status == defines.entity_status.normal) then
+            serialized.status = "\"preparing_rocket_for_launch\""
         end
 
         -- Add warnings based on state
         if not serialized.warnings then
             serialized.warnings = {}
         end
-        if serialized.rocket_parts < parts_required and serialized.rocket_parts > 0 then
+        if serialized.status == "\"preparing_rocket_for_launch\"" and serialized.rocket_parts < parts_required
+            and serialized.rocket_parts > 0 then
             table.insert(serialized.warnings, "\"waiting for rocket parts\"")
         elseif serialized.status == "\"waiting_to_launch_rocket\"" then
             table.insert(serialized.warnings, "\"ready to launch\"")
@@ -1884,11 +1973,23 @@ storage.utils.serialize_entity = function(entity)
             serialized.fluid_systems = fluid_systems
 
             if not has_fluid then
-                serialized.status = "not_connected"
+                -- empty: NOT_CONNECTED only when no fluid box of it connects to anything; a connected but empty
+                -- entity keeps the game's own status (e.g. no_input_fluid)
+                local connected = false
+                for i = 1, #entity.fluidbox do
+                    local ok_c, conns = pcall(entity.fluidbox.get_connections, i)
+                    if ok_c and conns and #conns > 0 then connected = true; break end
+                end
                 if not serialized.warnings then
                     serialized.warnings = {}
                 end
-                table.insert(serialized.warnings, "\"no fluid present in connections\"")
+                if not connected then
+                    serialized.status = "\"not_connected\""
+                    table.insert(serialized.warnings, "\"no fluid present in connections\"")
+                elseif entity.type == "generator" then
+                    local d = storage.utils.no_steam_detail(entity)
+                    if d then serialized.status_detail = "\"" .. d .. "\"" end
+                end
             else
                 serialized.fluid = fluid_contents
             end
@@ -1941,7 +2042,7 @@ storage.utils.serialize_entity = function(entity)
     end
 
     local detail = storage.utils.status_detail(entity)
-    if detail then
+    if detail and not serialized.status_detail then
         serialized.status_detail = "\"" .. detail .. "\""
     end
 

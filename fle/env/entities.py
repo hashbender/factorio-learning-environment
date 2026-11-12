@@ -691,6 +691,18 @@ class TransportBelt(Entity):
     _height: float = 1
     _width: float = 1
 
+    @field_validator("inventory", mode="before")
+    @classmethod
+    def _both_lanes(cls, v):
+        """Both lanes are always present; an empty lane is an empty Inventory."""
+        if v is None or isinstance(v, list):
+            v = {}
+        if isinstance(v, dict):
+            v = dict(v)
+            v["left"] = v.get("left") or {}
+            v["right"] = v.get("right") or {}
+        return v
+
     def __repr__(self):
         return f"Belt(({self.position})->, direction={self.direction})"
 
@@ -1262,6 +1274,7 @@ class RocketSilo(StaticEntity, Electric):
     rocket_parts: int = 0  # Number of rocket parts currently assembled
     rocket_inventory: Inventory = Inventory()  # Holds satellite or other payload
     rocket_progress: float = 0.0  # Progress of current rocket construction (0-100)
+    rocket_silo_status: Optional[str] = None  # the game's silo state, e.g. "building_rocket", "rocket_ready"
     # Factorio 2.0: launch_count removed (no longer available on LuaEntity)
     _width: float = 9
     _height: float = 9
@@ -1270,7 +1283,9 @@ class RocketSilo(StaticEntity, Electric):
         return (
             f"\n\tRocketSilo(position={self.position}, status={self.status}, "
             + (f"status_detail={self.status_detail!r}, " if self.status_detail else "")
-            + f"rocket_parts={self.rocket_parts}, rocket_progress={self.rocket_progress:.1f}%)"
+            + f"rocket_parts={self.rocket_parts}, rocket_progress={self.rocket_progress:.1f}%"
+            + (f", rocket_silo_status={self.rocket_silo_status!r}" if self.rocket_silo_status else "")
+            + ")"
         )
 
 

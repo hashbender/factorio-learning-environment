@@ -31,6 +31,47 @@ local function masks_collide(a, b)
     return false
 end
 
+-- Fluids next to a pipe-like entity the game refused with nothing in the way: the game does not build a
+-- fluid entity that would connect two different fluids. nil, or text naming the fluids and where they are.
+local MIX_TYPES = {["pipe"] = true, ["pipe-to-ground"] = true, ["storage-tank"] = true, ["pump"] = true}
+local function fluid_mix(surface, prototype, left, top, right, bottom, direction)
+    if not MIX_TYPES[prototype.type] then return nil end
+    local seen, names = {}, {}
+    local function add(other)
+        if not (other.valid and other.fluidbox) then return end
+        for i = 1, #other.fluidbox do
+            local f = other.fluidbox[i]
+            if f and f.name and not seen[f.name] then
+                seen[f.name] = other.name .. " at (" .. other.position.x .. ", " .. other.position.y .. ")"
+                table.insert(names, f.name)
+            end
+        end
+    end
+    -- the four sides (not the corners: fluid boxes never connect diagonally)
+    local ring = {{left - 1 + 0.01, top - 1 + 0.01}, {right + 1 + 0.99, bottom + 1 + 0.99}}
+    for _, other in pairs(surface.find_entities_filtered{area = ring}) do
+        local p = other.position
+        local beside_x = p.x >= left and p.x <= right + 1
+        local beside_y = p.y >= top and p.y <= bottom + 1
+        if beside_x or beside_y then add(other) end
+    end
+    -- a pipe-to-ground also connects underground along its axis
+    if prototype.type == "pipe-to-ground" then
+        local vertical = direction == defines.direction.north or direction == defines.direction.south
+        local cx, cy = left + 0.5, top + 0.5
+        local line = vertical and {{cx - 0.4, cy - 11}, {cx + 0.4, cy + 11}} or {{cx - 11, cy - 0.4}, {cx + 11, cy + 0.4}}
+        for _, other in pairs(surface.find_entities_filtered{area = line, type = "pipe-to-ground"}) do add(other) end
+    end
+    if #names < 2 then return nil end
+    local parts = {}
+    for k, n in ipairs(names) do
+        if k > 3 then break end
+        table.insert(parts, n .. " (" .. seen[n] .. ")")
+    end
+    return "it would connect fluid boxes holding different fluids: " .. table.concat(parts, ", ")
+        .. "; the game does not join two fluids"
+end
+
 storage.actions.can_place_entity = function(player_index, entity, direction, x, y)
     local player = storage.utils.ensure_valid_character(player_index)
     local surface = player.surface
@@ -130,6 +171,24 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
         return finish(false, entity .. " already stands at (" .. same.position.x .. ", " .. same.position.y
             .. "); place_entity does not build over an entity of the same name (it does not turn or replace it)")
     end
+    -- Nor over another entity the game would let it replace (e.g. a belt over an underground belt)
+    if fits then
+        local own = mask_layers(prototype)
+        local never_here = {["character"] = true, ["item-entity"] = true, ["corpse"] = true, ["character-corpse"] = true,
+                            ["entity-ghost"] = true, ["tile-ghost"] = true, ["highlight-box"] = true,
+                            ["flying-text"] = true, ["resource"] = true}
+        local area = {{left + 0.01, top + 0.01}, {right + 0.99, bottom + 0.99}}
+        for _, other in pairs(surface.find_entities_filtered{area = area}) do
+            if other.valid and not never_here[other.type] and masks_collide(own, mask_layers(other.prototype)) then
+                result.blocked_count = 1
+                table.insert(result.blocked_by, {kind = quoted("entity"), name = quoted(other.name), x = other.position.x, y = other.position.y})
+                local what = other.name
+                if other.type == "underground-belt" then what = what .. " (" .. other.belt_to_ground_type .. ")" end
+                return finish(false, what .. " stands at (" .. other.position.x .. ", " .. other.position.y
+                    .. ") in its footprint; place_entity does not build over or replace another entity")
+            end
+        end
+    end
     if fits then
         return finish(true, nil)
     end
@@ -196,5 +255,7 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
     if prototype.type == "offshore-pump" then
         return finish(false, entity .. " must be placed at the edge of water, facing the water")
     end
+    local mix = fluid_mix(surface, prototype, left, top, right, bottom, entity_direction)
+    if mix then return finish(false, "the game does not allow " .. entity .. " at this position: " .. mix) end
     return finish(false, "the game does not allow " .. entity .. " at this position; no colliding entity or tile was found")
 end

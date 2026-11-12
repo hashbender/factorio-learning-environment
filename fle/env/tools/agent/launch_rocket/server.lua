@@ -1,44 +1,43 @@
--- Function to find a rocket silo at the given position
+-- The rocket silo at the given position (a silo's footprint is 9x9: anything within 5 tiles of its centre)
 local function find_rocket_silo(surface, position)
-    local silo = surface.find_entities_filtered{
-        name = "rocket-silo",
-        position = position,
-        limit = 1,
-        radius=1000
-    }
-    return silo[1]
+    local best, best_d = nil, nil
+    for _, s in pairs(surface.find_entities_filtered{type = "rocket-silo", position = position, radius = 5}) do
+        if s.valid then
+            local dx, dy = s.position.x - position.x, s.position.y - position.y
+            local d = dx * dx + dy * dy
+            if not best_d or d < best_d then best, best_d = s, d end
+        end
+    end
+    return best
 end
 
--- Function to check if the silo has a rocket ready to launch
-local function is_rocket_ready(silo)
-    if not silo then return false end
-    if not silo.valid then return false end
-
-    -- Check if rocket is ready for launch
-    return silo.rocket_silo_status == defines.rocket_silo_status.rocket_ready
+local function silo_state(silo)
+    local st = silo.rocket_silo_status
+    for k, v in pairs(defines.rocket_silo_status) do
+        if v == st then return k end
+    end
+    return tostring(st)
 end
 
--- Function to launch rocket from specified position
-storage.actions.launch_rocket = function(x, y)
-    -- Get the current game surface
-    local surface = game.surfaces[1]
-    local position = {x=x, y=y}
-    -- Find rocket silo at the given position
+storage.actions.launch_rocket = function(player_index, x, y)
+    local player = storage.utils.ensure_valid_character(player_index)
+    local surface = player.surface
+    local position = {x = tonumber(x), y = tonumber(y)}
     local silo = find_rocket_silo(surface, position)
-
     if not silo then
-        game.print("No rocket silo found at specified position")
-        return false
+        error("No rocket silo at (" .. position.x .. ", " .. position.y .. ") (searched within 5 tiles)")
     end
-
-    -- Check if silo has a rocket ready
-    if not is_rocket_ready(silo) then
-        game.print("Rocket is not ready for launch")
-        return false
+    local state = silo_state(silo)
+    if silo.rocket_silo_status ~= defines.rocket_silo_status.rocket_ready then
+        local parts_required = silo.prototype.rocket_parts_required or 100
+        error("No rocket is ready to launch at the rocket silo at (" .. silo.position.x .. ", " .. silo.position.y
+            .. "): rocket silo status " .. state .. ", rocket parts " .. (silo.rocket_parts or 0) .. " of "
+            .. parts_required)
     end
-
-    -- Launch the rocket
-    silo.launch_rocket()
-    game.print("Rocket launched successfully!")
-    return true
+    local ok = silo.launch_rocket()
+    if not ok then
+        error("The game did not launch the rocket at the rocket silo at (" .. silo.position.x .. ", "
+            .. silo.position.y .. ") (rocket silo status " .. silo_state(silo) .. ")")
+    end
+    return {launched = true, x = silo.position.x, y = silo.position.y}
 end

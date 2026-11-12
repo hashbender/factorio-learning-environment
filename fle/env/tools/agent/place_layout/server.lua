@@ -85,6 +85,47 @@ end
 
 local function key(tx, ty) return tx .. "," .. ty end
 
+-- Fluids next to a pipe-like entity the game refused with nothing in the way: the game does not build a
+-- fluid entity that would connect two different fluids. nil, or text naming the fluids and where they are.
+local MIX_TYPES = {["pipe"] = true, ["pipe-to-ground"] = true, ["storage-tank"] = true, ["pump"] = true}
+local function fluid_mix(surface, prototype, left, top, right, bottom, direction)
+    if not MIX_TYPES[prototype.type] then return nil end
+    local seen, names = {}, {}
+    local function add(other)
+        if not (other.valid and other.fluidbox) then return end
+        for i = 1, #other.fluidbox do
+            local f = other.fluidbox[i]
+            if f and f.name and not seen[f.name] then
+                seen[f.name] = other.name .. " at (" .. other.position.x .. ", " .. other.position.y .. ")"
+                table.insert(names, f.name)
+            end
+        end
+    end
+    -- the four sides (not the corners: fluid boxes never connect diagonally)
+    local ring = {{left - 1 + 0.01, top - 1 + 0.01}, {right + 1 + 0.99, bottom + 1 + 0.99}}
+    for _, other in pairs(surface.find_entities_filtered{area = ring}) do
+        local p = other.position
+        local beside_x = p.x >= left and p.x <= right + 1
+        local beside_y = p.y >= top and p.y <= bottom + 1
+        if beside_x or beside_y then add(other) end
+    end
+    -- a pipe-to-ground also connects underground along its axis
+    if prototype.type == "pipe-to-ground" then
+        local vertical = direction == defines.direction.north or direction == defines.direction.south
+        local cx, cy = left + 0.5, top + 0.5
+        local line = vertical and {{cx - 0.4, cy - 11}, {cx + 0.4, cy + 11}} or {{cx - 11, cy - 0.4}, {cx + 11, cy + 0.4}}
+        for _, other in pairs(surface.find_entities_filtered{area = line, type = "pipe-to-ground"}) do add(other) end
+    end
+    if #names < 2 then return nil end
+    local parts = {}
+    for k, n in ipairs(names) do
+        if k > 3 then break end
+        table.insert(parts, n .. " (" .. seen[n] .. ")")
+    end
+    return "it would connect fluid boxes holding different fluids: " .. table.concat(parts, ", ")
+        .. "; the game does not join two fluids"
+end
+
 -- What is in the way of `e` (entities and tiles its collision mask collides with), as text
 local function blockers(surface, prototype, e)
     local left, top, right, bottom = tiles_of(e)
@@ -128,7 +169,26 @@ local function blockers(surface, prototype, e)
     if prototype.type == "offshore-pump" then
         return e.name .. " must be placed at the edge of water, facing the water"
     end
+    local mix = fluid_mix(surface, prototype, left, top, right, bottom, e.dir)
+    if mix then return "the game does not allow " .. e.name .. " here: " .. mix end
     return "the game does not allow " .. e.name .. " here; no colliding entity or tile was found"
+end
+
+-- An entity the game's build check would let `e` replace (a fast-replace, e.g. a belt over an underground
+-- belt): nil, or text naming it. place_layout builds only on free tiles.
+local function replaces(surface, prototype, e)
+    local left, top, right, bottom = tiles_of(e)
+    local own = mask_layers(prototype)
+    local area = {{left + 0.01, top + 0.01}, {right + 0.99, bottom + 0.99}}
+    for _, other in pairs(surface.find_entities_filtered{area = area}) do
+        if other.valid and not NOT_IN_THE_WAY[other.type] and masks_collide(own, mask_layers(other.prototype)) then
+            local what = other.name
+            if other.type == "underground-belt" then what = what .. " (" .. other.belt_to_ground_type .. ")" end
+            return "would replace " .. what .. " at " .. at(other.position.x, other.position.y)
+                .. "; place_layout does not replace entities"
+        end
+    end
+    return nil
 end
 
 -- The game's build check (the one place_entity uses), with the character stepped aside if it
@@ -405,9 +465,14 @@ local function plan(player, payload)
                 elseif mismatch then
                     e.status, e.reason = "blocked", mismatch
                 elseif game_fits(player, e) then
-                    e.status = "ok"
-                    required[e.item] = (required[e.item] or 0) + 1
-                    table.insert(to_visit, e)
+                    local rep = replaces(surface, prototype, e)
+                    if rep then
+                        e.status, e.reason = "blocked", rep
+                    else
+                        e.status = "ok"
+                        required[e.item] = (required[e.item] or 0) + 1
+                        table.insert(to_visit, e)
+                    end
                 else
                     e.status, e.reason = "blocked", blockers(surface, prototype, e)
                 end
@@ -478,8 +543,11 @@ local function place(player, payload)
                     fits = storage.utils.can_place_entity(player, e.name, {x = e.x, y = e.y}, e.dir)
                 end
             end
+            local rep = fits and replaces(surface, prototype, e)
             if not fits then
                 r.status, r.reason = "failed", blockers(surface, prototype, e)
+            elseif rep then
+                r.status, r.reason = "failed", rep
             else
                 local built = storage.utils.revive_ghost(player, e.name, {x = e.x, y = e.y})
                 if not built then
@@ -495,7 +563,7 @@ local function place(player, payload)
                         r.reason = e.name .. " was placed facing north (it takes a direction only while its recipe uses a fluid)"
                     end
                 else
-                    r.status, r.reason = "failed", "the game did not build it"
+                    r.status, r.reason = "failed", "the game did not build it: " .. blockers(surface, prototype, e)
                 end
             end
         end

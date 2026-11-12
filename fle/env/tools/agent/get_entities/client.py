@@ -102,17 +102,16 @@ class GetEntities(Tool):
                 raise Exception("Could not get entities", response)
 
             entities_list = []
+            by_name = {}
+            for prototype in Prototype:
+                by_name.setdefault(prototype.value[0], prototype)
             for raw_entity_data in response:
                 if isinstance(raw_entity_data, list):
                     continue
 
                 entity_data = self.clean_response(raw_entity_data)
-                # Find the matching Prototype
-                matching_prototype = None
-                for prototype in Prototype:
-                    if prototype.value[0] == entity_data["name"].replace("_", "-"):
-                        matching_prototype = prototype
-                        break
+                # Find the matching Prototype (first member with that name, as the loop over Prototype found it)
+                matching_prototype = by_name.get(entity_data["name"].replace("_", "-"))
 
                 if matching_prototype is None:
                     if "name" in entity_data and entity_data["name"] != "entity-ghost":

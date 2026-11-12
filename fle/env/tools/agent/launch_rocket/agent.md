@@ -8,7 +8,7 @@ The `launch_rocket` tool allows you to launch rockets from a rocket silo. This g
 launch_rocket(silo: Union[Position, RocketSilo]) -> RocketSilo
 ```
 
-The function returns the updated RocketSilo entity.
+The function returns the updated RocketSilo entity. It raises an error when there is no rocket silo within 5 tiles of the position, or when the silo has no rocket ready to launch (the error gives the silo's rocket_silo_status and rocket parts).
 
 ### Parameters
 
