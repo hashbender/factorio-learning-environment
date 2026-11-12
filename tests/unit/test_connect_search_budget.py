@@ -88,4 +88,6 @@ def test_no_path_search_starts_once_the_budget_is_used(monkeypatch):
     tool._give_up_at = 50.0
     tool.request_path = lambda **kw: (_ for _ in ()).throw(AssertionError("no path request"))
     r = tool._attempt_path_finding(Position(x=0.5, y=0.5), Position(x=9.5, y=0.5), ["pipe"], 10)
-    assert not r.is_success and "Failed to find a path" in r.error_message
+    assert not r.is_success and "search time" in r.error_message
+    # never the text that callers read as "maybe already connected"
+    assert "Failed to find a path" not in r.error_message

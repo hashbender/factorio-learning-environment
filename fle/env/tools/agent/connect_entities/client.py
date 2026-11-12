@@ -1033,9 +1033,11 @@ class ConnectEntities(Tool):
         for size in entity_sizes:
             if _monotonic() > getattr(self, "_give_up_at", float("inf")):
                 if result is None and last_handle is None:
+                    # (not "Failed to find a path": callers take that text to mean the
+                    # ends may already be connected, and return a nearby group)
                     return PathResult(
-                        "Failed to find a path. (The leg's search time was used up "
-                        "before the game's path search was asked for this route.)"
+                        "No path search was made for this route: the leg's search time "
+                        f"({_SEARCH_BUDGET_S} s) was used up."
                     )
                 break  # the leg's search time is used up
             # The path is computed asynchronously by the game, a little each tick, so
