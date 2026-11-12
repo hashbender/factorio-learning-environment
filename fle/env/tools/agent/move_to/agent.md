@@ -10,6 +10,8 @@ move_to(position: Position) -> Position
 
 The function returns your final Position after moving.
 
+If the target position is blocked (an entity stands on it, or it is water or a cliff), you stop on a nearby free tile instead (next to the blocking entity), and the returned Position is that tile, not the one you asked for. If no path is found, the call raises an error ("Could not get path to ...").
+
 ### Parameters
 
 - `position`: Target Position to move to

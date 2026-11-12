@@ -23,7 +23,24 @@ local function tech(name, fields)
     return t
 end
 local done = tech("done", {researched = true})
-local force = {technologies = {}, research_queue = {}, cancelled = 0, added = {}}
+local force = {technologies = {}, cancelled = 0, added = {}}
+-- research_queue: LuaTechnology objects, current research first; assigning it takes names
+local queue = {}
+setmetatable(force, {
+    __index = function(t, k)
+        if k == "research_queue" then
+            local o = {}
+            for _, n in ipairs(queue) do o[#o + 1] = t.technologies[n] end
+            return o
+        end
+        if k == "current_research" then return queue[1] and t.technologies[queue[1]] end
+    end,
+    __newindex = function(t, k, v)
+        if k ~= "research_queue" then return rawset(t, k, v) end
+        queue = {}
+        for _, n in ipairs(v) do queue[#queue + 1] = n end
+    end,
+})
 force.technologies["steam-power"] = tech("steam-power",
     {prototype = {research_trigger = {type = "craft-item", item = {name = "iron-plate"}, count = 50}}})
 force.technologies["oil-processing"] = tech("oil-processing",
@@ -90,6 +107,7 @@ def test_trigger_refusal_keeps_current_research(lua):
     _set_research(lua, "steam-power")
     assert force.cancelled == 0
     assert len(list(force.added.values())) == 0
+    assert len(list(force.research_queue.values())) == 0
 
 
 def test_lab_technology_is_still_set(lua):
@@ -97,4 +115,4 @@ def test_lab_technology_is_still_set(lua):
     ok, ingredients = _set_research(lua, "automation")
     assert ok
     assert ingredients[1]["count"] == 10
-    assert list(force.added.values()) == ["automation"]
+    assert force.current_research.name == "automation"

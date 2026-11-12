@@ -35,8 +35,9 @@ for ingredient in ingredients:
 
 ## Key Behaviors
 
-- Cancels the current research once the checks below pass (a refused call leaves it unchanged)
-- Makes the technology the current research; other technologies in the research queue keep their order behind it
+- Cancels the current research once the checks below pass (the game keeps its progress)
+- Makes the technology the current research; other technologies in the research queue keep their order behind it. A technology that is already in the queue moves to the front
+- A refused or failed call (an error) leaves the current research and the research queue unchanged
 - Validates technology prerequisites
 - Returns detailed ingredient requirements for the research
 

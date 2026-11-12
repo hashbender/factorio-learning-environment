@@ -8,7 +8,7 @@ The `harvest_resource` tool allows you to harvest resources like ores, trees and
 harvest_resource(position: Position, quantity: int = 1, radius: int = 10) -> int
 ```
 
-The function returns the actual quantity harvested.
+The function returns the actual quantity harvested (items received). It can differ from `quantity`: a tree or rock is mined whole (a tree gives 4 wood, or 2 for dead-dry-hairy-tree, dead-grey-trunk, dead-tree-desert and dry-hairy-tree; rock yields are rolled), so the result can be higher; it is lower when the trees, rocks or ore within `radius` of the position run out (e.g. a single tree within radius 2 gives 4 wood, or 2, for quantity 6).
 
 ### Parameters
 

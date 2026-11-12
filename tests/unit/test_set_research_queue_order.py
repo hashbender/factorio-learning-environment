@@ -25,8 +25,14 @@ end
 for _, n in ipairs({"automation", "logistics", "electronics", "military"}) do tech(n) end
 local queue = {}
 local force = {technologies = techs}
+-- As on a 2.0.73 server: add_research() refuses (returns false) a technology that is already queued
 function force.cancel_current_research() table.remove(queue, 1) end
-function force.add_research(name) queue[#queue + 1] = name; return true end
+function force.add_research(name)
+    for _, n in ipairs(queue) do if n == name then return false end end
+    queue[#queue + 1] = name; return true
+end
+-- names the game drops from an assigned queue (stands in for any refusal)
+refused = {}
 function force.queue_names() return table.concat(queue, ",") end
 local function as_techs()
     local o = {}
@@ -41,10 +47,11 @@ setmetatable(force, {
     __newindex = function(_, k, v)
         assert(k == "research_queue")
         queue = {}
-        for _, n in ipairs(v) do queue[#queue + 1] = n end
+        for _, n in ipairs(v) do if not refused[n] then queue[#queue + 1] = n end end
     end,
 })
 storage = {actions = {}, agent_characters = {[1] = {force = force}}}
+tech("automobilism")
 return force
 """
 
@@ -77,3 +84,38 @@ def test_empty_queue(force):
     ingredients = runtime.globals().storage.actions.set_research(1, "automation")
     assert f.queue_names() == "automation"
     assert ingredients[1]["count"] == 10
+
+
+def test_queued_technology_that_is_not_current(force):
+    # Regression: cancel_current_research() dropped the head, then add_research() refused the
+    # already-queued technology: the call raised "Failed to start research" with the queue changed.
+    runtime, f = force
+    f.research_queue = runtime.table(
+        "automation", "logistics", "automobilism", "electronics"
+    )
+    runtime.globals().storage.actions.set_research(1, "automobilism")
+    assert f.queue_names() == "automobilism,logistics,electronics"
+
+
+def test_current_technology_keeps_the_queue(force):
+    runtime, f = force
+    runtime.globals().storage.actions.set_research(1, "automation")
+    assert f.queue_names() == "automation,logistics,electronics"
+
+
+def test_a_failed_call_leaves_the_queue_unchanged(force):
+    runtime, f = force
+    runtime.globals().refused["military"] = True
+    with pytest.raises(
+        lupa.LuaError,
+        match="Failed to start research for military; the research queue is unchanged",
+    ):
+        runtime.globals().storage.actions.set_research(1, "military")
+    assert f.queue_names() == "automation,logistics,electronics"
+
+
+def test_a_refused_call_leaves_the_queue_unchanged(force):
+    runtime, f = force
+    with pytest.raises(lupa.LuaError, match="does not exist"):
+        runtime.globals().storage.actions.set_research(1, "no-such-tech")
+    assert f.queue_names() == "automation,logistics,electronics"

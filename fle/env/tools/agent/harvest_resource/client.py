@@ -22,7 +22,10 @@ class HarvestResource(Tool):
         :param quantity: Quantity to harvest
         :example harvest_resource(nearest(Resource.Coal), 5)
         :example harvest_resource(nearest(Resource.Stone), 5)
-        :return: The quantity of the resource harvested
+        :param radius: How far from position other trees, rocks or ore tiles may be harvested
+        :return: The number of items actually received. A tree or rock is mined whole (a tree
+            gives 2 or 4 wood; rock yields are rolled), so this can be more than quantity, or less
+            when the trees, rocks or ore within radius run out
         """
         assert isinstance(position, Position), (
             "First argument must be a Position object"

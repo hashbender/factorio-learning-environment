@@ -144,88 +144,94 @@ storage.actions.extract_item = function(player_index, extract_item, count, x, y,
         error("\"Invalid count " .. tostring(count) .. ": the quantity must be greater than 0\"")
     end
 
-    -- An entity source means that entity: look at its own tile first
-    local exact = nil
-    if source_name ~= nil then
-        local here = surface.find_entities_filtered{position = position, name = source_name, limit = 1}
-        exact = here[1]
+    -- The source is the entity that occupies the position (for an Entity source: the
+    -- entity of that name there). A tile (x, y) spans [x, x + 1) x [y, y + 1), so a
+    -- position on the edge shared by two adjacent entities belongs to the one on its
+    -- right / below; a position on an entity's outer edge still selects it when nothing
+    -- else covers it. Items never come from a neighbouring entity.
+    local skip_types = {["character"] = true, ["entity-ghost"] = true, ["tile-ghost"] = true}
+    local function footprint(e)
+        local box = e.bounding_box
+        return math.floor(box.left_top.x), math.floor(box.left_top.y),
+            math.ceil(box.right_bottom.x), math.ceil(box.right_bottom.y)
     end
-
-    -- Find all entities in range
-    local search_radius = 10
-    local area = {{position.x - search_radius, position.y - search_radius},
-                  {position.x + search_radius, position.y + search_radius}}
-    local buildings = nil
-
-    if exact then
-        buildings = {exact}
-    elseif source_name ~= nil then
-        buildings = surface.find_entities_filtered{
-            area = area,
-            name = source_name
-        }
-    else
-        buildings = surface.find_entities_filtered{
-            area = area
-        }
+    local function inside(e)
+        local l, t, r, b = footprint(e)
+        return position.x >= l and position.x < r and position.y >= t and position.y < b
     end
-
-    -- Find the closest building with the item we want
-    local closest_distance = math.huge
-    local closest_entity = nil
-    local belt_with_item = nil
-    local belt_distance = math.huge
-
-    for _, building in ipairs(buildings) do
-        if building.name ~= 'character' then
-            if belt_types[building.type] then
-                if belt_count(building, extract_item) > 0 then
-                    local distance = ((position.x - building.position.x) ^ 2 +
-                                    (position.y - building.position.y) ^ 2) ^ 0.5
-                    if distance < belt_distance then
-                        belt_distance = distance
-                        belt_with_item = building
-                    end
-                end
-            else
-                local item_count = building.get_item_count(extract_item)
-                if item_count > 0 then
-                    local distance = ((position.x - building.position.x) ^ 2 +
-                                    (position.y - building.position.y) ^ 2) ^ 0.5
-                    if distance < closest_distance then
-                        closest_distance = distance
-                        closest_entity = building
-                    end
+    local function on_edge(e)
+        local l, t, r, b = footprint(e)
+        return position.x >= l and position.x <= r and position.y >= t and position.y <= b
+    end
+    local function distance(e)
+        return ((position.x - e.position.x) ^ 2 + (position.y - e.position.y) ^ 2) ^ 0.5
+    end
+    local function closest(list, accept)
+        local best, best_distance = nil, math.huge
+        for _, e in ipairs(list) do
+            if e.valid and not skip_types[e.type] and accept(e) then
+                local d = distance(e)
+                if d < best_distance then
+                    best, best_distance = e, d
                 end
             end
         end
+        return best
     end
 
-    -- Error handling in priority order
+    local near = surface.find_entities_filtered{
+        area = {{position.x - 1, position.y - 1}, {position.x + 1, position.y + 1}},
+        name = source_name,
+        force = player.force
+    }
+    local source = closest(near, inside) or closest(near, on_edge)
 
-    if #buildings == 0 then
-        if source_name then
-            error("\"No " .. source_name .. " within " .. search_radius .. " tiles of " .. fmt_pos(position) .. "\"")
+    if not source then
+        -- Name what is nearby, so the caller can address it
+        local search_radius = 10
+        local around = surface.find_entities_filtered{
+            area = {{position.x - search_radius, position.y - search_radius},
+                    {position.x + search_radius, position.y + search_radius}},
+            name = source_name,
+            force = player.force
+        }
+        local holders = {}
+        for _, e in ipairs(around) do
+            if e.valid and not skip_types[e.type] then
+                local n = belt_types[e.type] and belt_count(e, extract_item) or e.get_item_count(extract_item)
+                if n > 0 then
+                    table.insert(holders, {e = e, n = n, d = distance(e)})
+                end
+            end
         end
-        error("\"No entity within " .. search_radius .. " tiles of " .. fmt_pos(position) .. "\"")
-    end
-
-    if not closest_entity then
-        -- No inventory holds it: take it off a belt's lanes, as a player can
-        if exact and belt_types[exact.type] or (not exact and belt_with_item) then
-            return take_from_belt(exact or belt_with_item)
-        end
-        if exact then
-            error("\"" .. exact.name .. " at " .. fmt_pos(exact.position) .. " has no " .. extract_item ..
-                " (it holds " .. contents_of(exact) .. ")\"")
-        end
-        local where = search_radius .. " tiles of " .. fmt_pos(position)
-        if source_name then
-            error("\"No " .. source_name .. " within " .. where .. " holds " .. extract_item .. "\"")
+        table.sort(holders, function(a, b) return a.d < b.d end)
+        local what = source_name or "entity"
+        local msg = "No " .. what .. " at " .. fmt_pos(position) .. ": extract_item takes items only from the entity" ..
+            " that occupies the given position"
+        if #holders > 0 then
+            local parts = {}
+            for i = 1, math.min(3, #holders) do
+                local h = holders[i]
+                table.insert(parts, string.format("%s at %s (%d %s, %.1f tiles away)", h.e.name, fmt_pos(h.e.position),
+                    h.n, extract_item, h.d))
+            end
+            msg = msg .. ". Nearest that hold " .. extract_item .. ": " .. table.concat(parts, "; ")
         else
-            error("\"No entity within " .. where .. " holds " .. extract_item .. "\"")
+            msg = msg .. ". Nothing within " .. search_radius .. " tiles holds " .. extract_item
         end
+        error("\"" .. msg .. "\"")
     end
+
+    -- A belt: take the items off its lanes, as a player can
+    if belt_types[source.type] then
+        return take_from_belt(source)
+    end
+
+    if source.get_item_count(extract_item) == 0 then
+        error("\"" .. source.name .. " at " .. fmt_pos(source.position) .. " has no " .. extract_item ..
+            " (it holds " .. contents_of(source) .. ")\"")
+    end
+    local closest_entity = source
 
     if not player.can_reach_entity(closest_entity) then
         error("\"" .. closest_entity.name .. " at ("..closest_entity.position.x..", "..closest_entity.position.y..") is too far away from your position of ("..player.position.x..","..player.position.y.."), move closer.\"")

@@ -38,7 +38,9 @@ class MoveTo(Tool):
         self, position: Position, laying: Prototype = None, leading: Prototype = None
     ) -> Position:
         """
-        Move to a position.
+        Move to a position. If the position is blocked (an entity, water, a cliff), you stop
+        on a nearby free tile instead; the returned position is where you stopped, which
+        then differs from the one asked for. Raises an error if no path is found.
         :param position: Position to move to.
         :return: Your final position
         """

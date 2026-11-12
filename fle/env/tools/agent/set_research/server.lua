@@ -79,26 +79,32 @@ storage.actions.set_research = function(player_index, technology_name)
         ))
     end
 
-    -- Only switch away from valid current research after validation succeeds.
-    force.cancel_current_research()
-
-    local success = force.add_research(technology_name)
-    if not success then
-        error(string.format("\"Failed to start research for %s\"", technology_name))
+    -- Make the technology the current research in one write of the research queue: it
+    -- goes first, the current research is dropped (cancelled; its progress is kept by the
+    -- game), and the other queued technologies keep their order behind it. (add_research()
+    -- refuses a technology that is already queued, and cancel_current_research() before it
+    -- would already have changed the queue.) If the game does not take the new queue, the
+    -- old queue is put back and the call fails.
+    local before = {}
+    for _, queued in ipairs(force.research_queue or {}) do
+        table.insert(before, queued.name)
     end
-
-    -- add_research() appends to the research queue. With other technologies
-    -- queued, the next one would become the current research, so move the
-    -- requested technology to the front; the rest keep their order.
     local current = force.current_research
-    if not (current and current.name == technology_name) then
-        local queue = {technology_name}
-        for _, queued in pairs(force.research_queue) do
-            if queued.name ~= technology_name then
-                table.insert(queue, queued.name)
-            end
+    local queue = {technology_name}
+    for index, name in ipairs(before) do
+        local is_current = index == 1 and current ~= nil and current.name == name
+        if name ~= technology_name and not is_current then
+            table.insert(queue, name)
         end
-        force.research_queue = queue
+    end
+    force.research_queue = queue
+
+    current = force.current_research
+    if not (current and current.name == technology_name) then
+        force.research_queue = before
+        error(string.format(
+            "\"Failed to start research for %s; the research queue is unchanged\"", technology_name
+        ))
     end
 
     -- Collect and return the research ingredients

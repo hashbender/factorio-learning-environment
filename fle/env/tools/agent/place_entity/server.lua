@@ -288,8 +288,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
                         player.remove_item{name = item_name, count = 1}
                         -- game.print("Placed " .. entity .. " at " .. new_position.x .. ", " .. new_position.y)
                         return storage.utils.note_dropped_direction(
-                            storage.actions.get_entity(player_index, entity, new_position.x, new_position.y),
-                            have_built, entity_direction)
+                            storage.utils.serialize_entity(have_built), have_built, entity_direction)
                     end
                 else
                     error("\"Could not find a suitable position to place " .. entity .. " near the target location.\"")
@@ -401,25 +400,10 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
             player.remove_item{name = item_name, count = 1}
             -- game.print("Placed " .. entity .. " at " .. position.x .. ", " .. position.y)
 
-            -- Find and return the placed entity
-            -- Use the entity prototype's tile dimensions for search area
-            local prototype = prototypes.entity[entity]
-            local width = 1
-            local height = 1
-            if prototype and prototype.tile_width then
-                width = prototype.tile_width / 2 + 0.5
-                height = prototype.tile_height / 2 + 0.5
-            end
-            local target_area = {
-                {position.x - width, position.y - height},
-                {position.x + width, position.y + height}
-            }
-            local entities = player.surface.find_entities_filtered{area = target_area, name = entity}
-
-            if #entities > 0 then
-                return storage.utils.note_dropped_direction(storage.utils.serialize_entity(entities[1]), have_built, entity_direction)
-            end
-            error("\"Could not find placed entity\"")
+            -- Return the entity just built. (A search around the position could return a
+            -- neighbouring entity of the same name, e.g. the next inserter in a row, with
+            -- its position, direction and pickup / drop targets.)
+            return storage.utils.note_dropped_direction(storage.utils.serialize_entity(have_built), have_built, entity_direction)
         else
             -- create_entity returned nil - collect diagnostic information
             local diag = {}

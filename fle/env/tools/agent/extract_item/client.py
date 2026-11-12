@@ -13,9 +13,12 @@ class ExtractItem(Tool):
         self, entity: Prototype, source: Union[Position, Entity], quantity=5
     ) -> int:
         """
-        Extract an item from an entity's inventory at position (x, y) if it exists on the world.
+        Extract an item from the inventory of the entity at a position (or the given entity).
+        Items come only from the entity that occupies the position, never from a neighbour;
+        if no entity is there, or it does not hold the item, an error names the nearest
+        entities (within 10 tiles) that hold it.
         :param entity: Entity prototype to extract, e.g Prototype.IronPlate
-        :param source: Entity or position to extract from
+        :param source: Entity or position to extract from (a belt there: items come off its lanes)
         :param quantity: Quantity to extract
         :example extract_item(Prototype.IronPlate, stone_furnace.position, 5)
         :example extract_item(Prototype.CopperCable, stone_furnace, 5)
