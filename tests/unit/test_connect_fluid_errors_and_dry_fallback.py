@@ -168,3 +168,14 @@ def test_straight_line_fallback_in_a_dry_run_plans_all_three_parts_and_picks_not
     assert [p["name"] for p in leg["planned"]] == ["pipe-to-ground", "pipe"]
     assert leg["number_of_entities_required"] == 2
     assert picked == []
+
+
+def test_empty_source_into_a_machine_names_what_the_machine_takes():
+    refinery = _refinery(
+        [IndexedPosition(x=0.5, y=-2.5, type="petroleum-gas")],
+        [IndexedPosition(x=0.5, y=3.5, type="crude-oil")],
+    )
+    with pytest.raises(Exception) as e:
+        _resolver().check_for_recipe_requirement(refinery, [])
+    msg = str(e.value)
+    assert "takes ['crude-oil']" in msg and "from a fluid output of the source" in msg

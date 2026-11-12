@@ -262,7 +262,7 @@ class FluidConnectionResolver(Resolver):
         source_fluids = [x.type for x in source_fluid_positions if x.type]
         if not source_fluids:
             raise Exception(
-                f"The source does not have fluid in it. Cannot connect an empty source to a {target_entity.prototype}. The {target_entity.prototype} input handlers are fluid specific so source entity needs to have fluid in it"
+                f"The source does not have fluid in it: it has no fluid output and holds no fluid. Cannot connect an empty source to a {target_entity.prototype}. The {target_entity.prototype} at ({target_entity.position.x}, {target_entity.position.y}) takes {sorted(set(x.type for x in target_entity.input_connection_points if x.type))}. connect_entities pipes from a fluid output of the source to a fluid input of the target."
             )
         if not target_entity.recipe:
             raise Exception(
