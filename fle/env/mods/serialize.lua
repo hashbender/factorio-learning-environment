@@ -1955,19 +1955,21 @@ storage.utils.serialize_entity = function(entity)
             table.insert(serialized.warnings, "\"missing fluid connection\"")
         else
             -- Additional fluid-specific checks
+            -- every fluid box's segment id (each id once, in fluid box order), whether or not the box holds
+            -- fluid now; `fluid` is the first fluid found in any box
             local fluid_systems = {}
+            local seen_systems = {}
             local has_fluid = false
             local fluid_contents = nil
             for i = 1, #entity.fluidbox do
-                if entity.fluidbox[i] then
-                    -- Factorio 2.0: get_fluid_system_id -> get_fluid_segment_id
-                    local system_id = entity.fluidbox.get_fluid_segment_id(i)
-                    if system_id then
-                        table.insert(fluid_systems, system_id)
-                    end
+                local ok_s, system_id = pcall(entity.fluidbox.get_fluid_segment_id, i)
+                if ok_s and system_id and not seen_systems[system_id] then
+                    seen_systems[system_id] = true
+                    table.insert(fluid_systems, system_id)
+                end
+                if entity.fluidbox[i] and not has_fluid then
                     has_fluid = true
                     fluid_contents =  "\""..entity.fluidbox[i].name.."\""
-                    break
                 end
             end
             serialized.fluid_systems = fluid_systems

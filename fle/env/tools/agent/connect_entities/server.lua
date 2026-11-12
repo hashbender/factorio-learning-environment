@@ -106,10 +106,22 @@ local function has_valid_fluidbox(entity)
     return entity.fluidbox and #entity.fluidbox > 0 and entity.fluidbox[1] and entity.fluidbox.get_fluid_segment_id
 end
 
+-- The fluid segment ids of every fluid box of an entity (a refinery's or chemical plant's matching fluid
+-- need not be in box 1)
+local function fluid_segment_ids(entity)
+    local ids = {}
+    if not (entity and entity.valid and entity.fluidbox) then return ids end
+    for i = 1, #entity.fluidbox do
+        local ok, id = pcall(entity.fluidbox.get_fluid_segment_id, i)
+        if ok and id then ids[id] = true end
+    end
+    return ids
+end
+
 local function are_fluidboxes_connected(entity1, entity2)
-    if has_valid_fluidbox(entity1) and has_valid_fluidbox(entity2) then
-        -- Factorio 2.0: get_fluid_system_id -> get_fluid_segment_id
-        return entity1.fluidbox.get_fluid_segment_id(1) == entity2.fluidbox.get_fluid_segment_id(1)
+    local ids2 = fluid_segment_ids(entity2)
+    for id in pairs(fluid_segment_ids(entity1)) do
+        if ids2[id] then return true end
     end
     return false
 end
