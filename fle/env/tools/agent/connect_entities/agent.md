@@ -72,6 +72,15 @@ Key points:
 - Use underground belts for crossing other belts
 - Belt groups maintain direction and flow information
 - Belts already on the map keep their direction, type and position. A route that would change one fails with an error naming that belt, and nothing is built. Connecting from a belt line starts in front of its last belt. Pass `allow_belt_changes=True` to let the tool turn the end belt of an existing line
+- How a belt route is found: first along the game's walking path, which treats belts already on the map as walls (it goes round them, never across). If that gives no route, the route is searched tile by tile:
+  - New belts go only on buildable tiles that no existing belt outputs onto (a belt there would join that line).
+  - With an underground belt among the connection types (e.g. `{Prototype.TransportBelt, Prototype.UndergroundBelt}`), an underground pair carries the line under whatever is in its way (other belts, buildings, water). The exit is at most the game's maximum distance past its entrance: 5 tiles for UndergroundBelt (4 tiles crossed), 7 for FastUndergroundBelt, 9 for ExpressUndergroundBelt. The entrance is fed from straight behind and the exit sends the items straight on; an empty start tile can be the entrance and an empty end tile the exit.
+  - Underground belts are used only for these crossings. If the crossings need more than you hold and a route without them exists, that route is used; if not, the route with them is returned and the item check names what is missing.
+  - A pair never spans or stands inside a tunnel of the same underground belt on the same axis (the game would re-pair it).
+  - With an underground belt alone as the connection type, the surface tiles of the route get the matching transport belt.
+  - With several belt tiers listed, the surface belts are the lowest tier listed. With several underground belts listed, one kind is used: the one of the same tier as the surface belts if you hold 2 or more, else the first other listed kind (lowest tier first) you hold 2 or more of.
+  - The dry run takes the same route as the real call.
+- When there is no belt route, the error starts with "Failed to find a path." and names the blocked tile nearest the target that the search reached and what is on it (or the existing belt that outputs onto it), and says whether underground belts were allowed and how many you hold
 
 ## Pipe Connections
 
