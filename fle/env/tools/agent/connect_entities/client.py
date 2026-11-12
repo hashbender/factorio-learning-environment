@@ -1,5 +1,6 @@
 import math
 import re
+from time import monotonic as _monotonic
 from typing import Union, Optional, List, Dict, cast, Set
 
 import numpy
@@ -58,6 +59,9 @@ _PROTOTYPE_NAME = re.compile(r"[a-z0-9-]{1,100}")
 # The character walks the route before it is built: every entity of the route is
 # within this distance of a point it walks to (vanilla build reach is 10).
 _WALK_REACH = 8.0
+# One leg stops trying further position pairs and path box sizes after this many seconds
+# of searching, so a route that does not exist cannot use up a program's time limit
+_SEARCH_BUDGET_S = 25
 
 
 def _is_item_shortage(message) -> bool:
@@ -630,7 +634,13 @@ class ConnectEntities(Tool):
                 ]
 
         last_exception = None
+        give_up_at = _monotonic() + _SEARCH_BUDGET_S
+        self._give_up_at = give_up_at
+        tried = 0
         for source_pos, target_pos in prioritised_list_of_position_pairs:
+            if last_exception is not None and _monotonic() > give_up_at:
+                break
+            tried += 1
             # Handle the actual connection
             try:
                 # Store source position for fallback usage
@@ -739,6 +749,8 @@ class ConnectEntities(Tool):
         ):
             # (a dry run tries it too, building nothing, so it answers as the real call)
             for source_pos, target_pos in prioritised_list_of_position_pairs:
+                if _monotonic() > give_up_at:
+                    break
                 try:
                     connection = self._create_modified_straight_connection(
                         source_pos,
@@ -784,6 +796,12 @@ class ConnectEntities(Tool):
             else f"{target.name} at {target.position}"
         )
         exception_message = str(last_exception)
+        if _monotonic() > give_up_at:
+            exception_message += (
+                f" (connect_entities stopped searching after {_SEARCH_BUDGET_S} s; "
+                f"{len(prioritised_list_of_position_pairs) - tried} of "
+                f"{len(prioritised_list_of_position_pairs)} position pairs were not tried)"
+            )
         if exception_message == "nil,":
             exception_message = "Failed to connect entities. Please reposition entities or clear potential blockages"
 
@@ -1009,6 +1027,10 @@ class ConnectEntities(Tool):
         result = None
         last_handle = None
         for size in entity_sizes:
+            if size != entity_sizes[0] and _monotonic() > getattr(
+                self, "_give_up_at", float("inf")
+            ):
+                break  # the leg's search time is used up
             # The path is computed asynchronously by the game, a little each tick, so
             # a fixed wall-clock sleep is too short at low game speeds (at 1x, 50 ms
             # is ~3 ticks). Wait for the answer, and ask again if the pathfinder is busy.
