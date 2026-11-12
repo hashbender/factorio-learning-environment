@@ -1065,6 +1065,31 @@ storage.utils.status_detail = function(entity)
     return nil
 end
 
+-- The fluid networks (segment ids) of every fluid box of an entity, each once, in fluid box order. A machine's
+-- own fluid box belongs to no segment (Factorio 2.0 returns nil for it): its network is the segment of what the
+-- box is connected to (a pipe, a tank).
+storage.utils.fluid_system_ids = function(entity)
+    local ids, seen = {}, {}
+    local fb = entity.fluidbox
+    for i = 1, (fb and #fb or 0) do
+        local here = {}
+        local ok_s, id = pcall(fb.get_fluid_segment_id, i)
+        if ok_s and id then
+            table.insert(here, id)
+        else
+            local ok_c, conns = pcall(fb.get_connections, i)
+            for _, other in pairs(ok_c and conns or {}) do
+                local ok_o, oid = pcall(other.get_fluid_segment_id, 1)
+                if ok_o and oid then table.insert(here, oid) end
+            end
+        end
+        for _, x in ipairs(here) do
+            if not seen[x] then seen[x] = true; table.insert(ids, x) end
+        end
+    end
+    return ids
+end
+
 -- Why a connected steam engine / turbine has no steam: the boilers in the fluid network it is connected to
 -- (followed through the connected fluid boxes, at most 400 entities) and their state
 storage.utils.no_steam_detail = function(entity)
@@ -1605,6 +1630,11 @@ storage.utils.serialize_entity = function(entity)
     -- The fluids the set recipe takes and makes (MultiFluidHandler.input_fluids / output_fluids), from the
     -- recipe itself; both empty while no recipe is set
     if entity.name == "oil-refinery" or entity.name == "chemical-plant" then
+        -- (their type is assembling-machine, so the fluid handler block below does not run for them)
+        pcall(function()
+            local ids = storage.utils.fluid_system_ids(entity)
+            if #ids > 0 then serialized.fluid_systems = ids end
+        end)
         pcall(function()
             local recipe = entity.get_recipe()
             if not recipe then return end
@@ -1958,29 +1988,10 @@ storage.utils.serialize_entity = function(entity)
             -- every fluid box's segment id (each id once, in fluid box order), whether or not the box holds
             -- fluid now; `fluid` is the first fluid found in any box
             local fluid_systems = {}
-            local seen_systems = {}
             local has_fluid = false
             local fluid_contents = nil
+            fluid_systems = storage.utils.fluid_system_ids(entity)
             for i = 1, #entity.fluidbox do
-                -- a machine's own fluid box belongs to no segment (Factorio 2.0 returns nil for it): its network
-                -- is the segment of what the box is connected to (a pipe, a tank)
-                local ids_here = {}
-                local ok_s, system_id = pcall(entity.fluidbox.get_fluid_segment_id, i)
-                if ok_s and system_id then
-                    table.insert(ids_here, system_id)
-                else
-                    local ok_c, conns = pcall(entity.fluidbox.get_connections, i)
-                    for _, other in pairs(ok_c and conns or {}) do
-                        local ok_o, oid = pcall(other.get_fluid_segment_id, 1)
-                        if ok_o and oid then table.insert(ids_here, oid) end
-                    end
-                end
-                for _, id in ipairs(ids_here) do
-                    if not seen_systems[id] then
-                        seen_systems[id] = true
-                        table.insert(fluid_systems, id)
-                    end
-                end
                 if entity.fluidbox[i] and not has_fluid then
                     has_fluid = true
                     fluid_contents =  "\""..entity.fluidbox[i].name.."\""
