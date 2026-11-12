@@ -4,7 +4,26 @@ from fle.env import Inventory, Entity, Position
 from fle.env.tools import Tool
 
 
-_MINE = object()  # no argument: your own inventory
+class _OwnInventory:
+    """The default of inspect_inventory's entity: no argument means your own inventory.
+    A named singleton with a fixed repr, so the signature in the tool docs reads the same
+    in every process (a bare object() shows its memory address)."""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "<your own inventory>"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+_MINE = _OwnInventory()  # no argument: your own inventory
 
 
 class InspectInventory(Tool):
