@@ -82,6 +82,15 @@ def test_single_well_field():
     assert math.isclose(result.size, 10)
 
 
+def test_no_resource_in_radius_is_not_found_not_an_error():
+    # the client turns {not_found = true} into None (documented: "ResourcePatch if found, else None")
+    lua = _lua()
+    result = lua.eval(
+        'storage.actions.get_resource_patch(1, "crude-oil", 0.5, 0.5, 30)'
+    )
+    assert result.not_found is True
+
+
 def test_resource_patch_takes_a_rate_and_well_count():
     box = BoundingBox(
         left_top=Position(x=0, y=0),
