@@ -22,11 +22,14 @@ class GetResourcePatch(Tool):
         :param position: Position to get resource patch
         :param radius: Radius to search for resource patch
         :example coal_patch_at_origin = get_resource_patch(Resource.Coal, Position(x=0, y=0))
-        :return: ResourcePatch if found, else None
+        :return: ResourcePatch if found, else None (no such resource within the radius)
         """
         response, time_elapsed = self.execute(
             self.player_index, resource[0], position.x, position.y, radius
         )
+
+        if isinstance(response, dict) and response.get("not_found"):
+            return None
 
         if not isinstance(response, dict) or response == {}:
             top_level_message = (

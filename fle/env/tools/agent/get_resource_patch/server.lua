@@ -30,7 +30,7 @@ storage.actions.get_resource_patch = function(player_index, resource, x, y, radi
     if resource == "water" then
         local water_tiles = surface.find_tiles_filtered{position = position, name = "water", radius = radius}
         if #water_tiles == 0 then
-            error("No water at the specified location.")
+            return {not_found = "No water at the specified location."}
         end
 
         local total_water_tiles = 0
@@ -51,7 +51,7 @@ storage.actions.get_resource_patch = function(player_index, resource, x, y, radi
             radius = radius
         }
         if #trees == 0 then
-            error("No trees at the specified location.")
+            return {not_found = "No trees at the specified location."}
         end
         local total_wood = 0
         for _, tree in pairs(trees) do
@@ -70,7 +70,7 @@ storage.actions.get_resource_patch = function(player_index, resource, x, y, radi
     else
         local resource_entities = surface.find_entities_filtered{position = position, name = resource, radius = radius}
         if #resource_entities == 0 then
-            error("\"No resource of type " .. resource .. " at the specified location.\"")
+            return {not_found = "No resource of type " .. resource .. " at the specified location."}
         end
 
         local resource_prototype = prototypes.entity[resource]

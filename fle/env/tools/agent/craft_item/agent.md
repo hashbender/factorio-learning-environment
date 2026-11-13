@@ -29,6 +29,8 @@ The tool supports recursive crafting of intermediate components. For example:
 - The tool will first attempt to craft the required copper cable
 - Then proceed with crafting the electronic circuit
 
+The whole recipe tree is worked out before anything is crafted. Intermediates you already hold are used first, and each intermediate is counted once across the tree, so an intermediate that two parts of a recipe use (such as the iron gear wheels a lab needs directly and inside its transport belts) is crafted in the total amount needed. Only the intermediates the recipe needs are crafted. If an item that can't be crafted by hand (a raw resource, a smelted plate, a machine-only or not yet unlocked intermediate) is short, nothing is crafted and the error lists the total still needed of each one, e.g. `still missing ingredients - iron-plate x36, copper-plate x15`.
+
 ### Technology Requirements
 
 - Some items require specific technologies to be researched before they can be crafted

@@ -127,16 +127,86 @@ storage.actions.craft_item = function(player_index, entity, count)
         table.insert(storage.crafted_items, craft_stats)
     end
 
-    -- Single recursive crafting function that handles both fast and slow modes
-    local function attempt_craft(player, entity_name, count, attempted_recipes)
-        attempted_recipes = attempted_recipes or {}
+    -- Plan the whole recipe tree before crafting anything. Every intermediate is counted once across the tree:
+    -- what you already hold is used first, and an intermediate crafted for one branch (or the extra copper cable of
+    -- an odd count) is available to the next branch. So crafting a lab makes the gears the belts need as well as
+    -- the gears the lab needs. If anything that can't be hand-crafted is short, the result lists the total still
+    -- needed of each such item and nothing is crafted.
+    local MAX_PLAN_STEPS = 500
 
-        -- Prevent infinite recursion
-        if attempted_recipes[entity_name] then
-            return 0, "recursive crafting loop detected"
+    local function plan_craft(player, recipe, crafts)
+        local avail = {}          -- items not yet reserved by the plan (starts as the inventory)
+        local steps = {}          -- {name, recipe, crafts} in the order to craft them
+        local short, short_order = {}, {}
+        local too_big = false
+
+        local function have(name)
+            if avail[name] == nil then avail[name] = player.get_item_count(name) end
+            return avail[name]
         end
-        attempted_recipes[entity_name] = true
 
+        local function add_short(name, amount, reason)
+            if not short[name] then
+                short[name] = {amount = 0, reason = reason}
+                table.insert(short_order, name)
+            end
+            short[name].amount = short[name].amount + amount
+        end
+
+        local need
+        local function craft_into(name, rec, n, path)
+            for _, ingredient in pairs(rec.ingredients) do
+                need(ingredient.name, ingredient.amount * n, path)
+            end
+            table.insert(steps, {name = name, recipe = rec, crafts = n})
+            if #steps > MAX_PLAN_STEPS then too_big = true end
+        end
+
+        need = function(name, amount, path)
+            if too_big then return end
+            local held = have(name)
+            local take = math.min(held, amount)
+            avail[name] = held - take
+            local rest = amount - take
+            if rest <= 0 then return end
+            if path[name] then
+                add_short(name, rest, "its recipe needs itself")
+                return
+            end
+            local ok, rec_or_err = can_craft_recipe(player, name)
+            if not ok then
+                add_short(name, rest, rec_or_err)
+                return
+            end
+            local rec = rec_or_err
+            local per_craft = rec.products[1].amount
+            local n = math.ceil(rest / per_craft)
+            path[name] = true
+            craft_into(name, rec, n, path)
+            path[name] = nil
+            avail[name] = (avail[name] or 0) + n * per_craft - rest
+        end
+
+        craft_into(recipe.name, recipe, crafts, {[recipe.name] = true})
+        return steps, short, short_order, too_big
+    end
+
+    local function shortage_text(short, short_order)
+        local parts = {}
+        for _, name in ipairs(short_order) do
+            local s = short[name]
+            local part = name .. " x" .. s.amount
+            local r = s.reason or ""
+            -- raw resources and smelted plates need no explanation; machine-only or locked intermediates do
+            if not (r:find("raw resource", 1, true) or r:find("category: smelting", 1, true)) then
+                part = part .. " (" .. r .. ")"
+            end
+            table.insert(parts, part)
+        end
+        return table.concat(parts, ", ")
+    end
+
+    local function attempt_craft(player, entity_name, count)
         local can_craft, recipe_or_error = can_craft_recipe(player, entity_name)
         if not can_craft then
             return 0, recipe_or_error
@@ -146,56 +216,51 @@ storage.actions.craft_item = function(player_index, entity, count)
         local crafts_needed = math.ceil(count / recipe.products[1].amount)
         local actual_craft_count = crafts_needed * recipe.products[1].amount
 
-        -- Check for missing ingredients
-        local missing_ingredients = get_missing_ingredients(player, recipe, actual_craft_count)
-        if next(missing_ingredients) then
-            -- Try to craft each missing ingredient
-            for ingredient_name, needed_amount in pairs(missing_ingredients) do
-                local crafted_amount, error_msg = attempt_craft(player, ingredient_name, needed_amount, attempted_recipes)
-                if crafted_amount == 0 then
-                    return 0, "couldn't craft a required sub-ingredient for ".. entity_name .. " - " .. ingredient_name .. " - " .. error_msg .. ". Required " ..ingredient_name.. " amount for " .. entity_name .. " - " .. needed_amount .. ")"
-                end
-            end
+        local steps, short, short_order, too_big = plan_craft(player, recipe, crafts_needed)
+        if too_big then
+            return 0, "the recipe tree needs more than " .. MAX_PLAN_STEPS .. " separate crafts; craft fewer at a time"
+        end
+        if next(short) then
+            return 0, "still missing ingredients - " .. shortage_text(short, short_order) ..
+                " (the total still needed after using what you hold and crafting every intermediate that can be " ..
+                "hand-crafted). Nothing was crafted"
         end
 
-        -- Calculate total ticks needed for this craft
-        local crafting_ticks = calculate_crafting_ticks(recipe, crafts_needed)
-
-
-        -- After potentially crafting intermediates, check if we can now craft the original item
         if storage.fast then
-            -- Only add ticks in fast mode since in slow mode they are added naturally
-            storage.elapsed_ticks = storage.elapsed_ticks + crafting_ticks
-
-            -- Add inventory space check here
             local can_insert, error_msg = check_inventory_space(player, entity_name, actual_craft_count)
             if not can_insert then
                 return 0, error_msg
             end
 
-            -- Fast crafting implementation
-            local missing = get_missing_ingredients(player, recipe, actual_craft_count)
-            if next(missing) then
-                local missing_str = ""
-                for name, amount in pairs(missing) do
-                    missing_str = missing_str .. name .. " x" .. amount .. ", "
+            local crafted = 0
+            for i, step in ipairs(steps) do
+                -- the plan guarantees the ingredients; check anyway so a surprise never eats items
+                for _, ingredient in pairs(step.recipe.ingredients) do
+                    local want = ingredient.amount * step.crafts
+                    if player.get_item_count(ingredient.name) < want then
+                        return 0, "still missing ingredients - " .. ingredient.name .. " x" ..
+                            (want - player.get_item_count(ingredient.name)) .. " (while crafting " .. step.name .. ")"
+                    end
                 end
-                return 0, "still missing ingredients - " .. missing_str:sub(1, -3)
+                for _, ingredient in pairs(step.recipe.ingredients) do
+                    player.remove_item({name = ingredient.name, count = ingredient.amount * step.crafts})
+                end
+                local made = step.crafts * step.recipe.products[1].amount
+                local inserted = player.insert({name = step.name, count = made})
+                if inserted < made then
+                    player.surface.spill_item_stack(player.position, {name = step.name, count = made - inserted})
+                end
+                storage.elapsed_ticks = storage.elapsed_ticks + calculate_crafting_ticks(step.recipe, step.crafts)
+                if i == #steps then
+                    crafted = inserted
+                    update_production_stats(player.force, step.recipe, inserted)
+                else
+                    update_production_stats(player.force, step.recipe, made)
+                end
             end
-
-            for _, ingredient in pairs(recipe.ingredients) do
-                player.remove_item({name = ingredient.name, count = ingredient.amount * crafts_needed})
-            end
-
-            local crafted = player.insert({name = entity_name, count = actual_craft_count})
-            if crafted < actual_craft_count then
-                player.surface.spill_item_stack(player.position, {name = entity_name, count = actual_craft_count - crafted})
-            end
-
-            update_production_stats(player.force, recipe, crafted)
             return crafted, nil
         else
-            -- Slow crafting implementation
+            -- Slow crafting: the game's crafting queue makes the intermediates itself
             local crafted = player.begin_crafting{count=count, recipe=entity_name}
             if crafted == 0 then
                 return 0, "unable to begin crafting - check prerequisites and inventory space"
@@ -211,7 +276,7 @@ storage.actions.craft_item = function(player_index, entity, count)
 
     while total_crafted < count do
         local remaining = count - total_crafted
-        local crafted_amount, error_msg = attempt_craft(player, entity, remaining, {})
+        local crafted_amount, error_msg = attempt_craft(player, entity, remaining)
 
         if crafted_amount > 0 then
             total_crafted = total_crafted + crafted_amount

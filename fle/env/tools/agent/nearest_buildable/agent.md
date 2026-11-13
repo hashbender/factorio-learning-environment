@@ -12,7 +12,7 @@ nearest_buildable(
 ) -> BoundingBox
 ```
 
-The function returns a BoundingBox object containing buildable area coordinates.
+The function returns a BoundingBox object containing buildable area coordinates. If no such area is found it raises an error (`No viable place to put ... found on the map. ...`); it never returns None.
 
 For an entity with fluid ports (oil refinery, chemical plant, boiler, steam engine, pump, storage tank, pumpjack...), the area is only returned if none of the entity's ports, placed at the centre of the area facing any direction, opens onto water. Offshore pumps and assembling machines 1-3 are not checked this way.
 

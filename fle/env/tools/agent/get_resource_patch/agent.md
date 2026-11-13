@@ -45,6 +45,8 @@ ResourcePatch(
 )
 ```
 
+When there is none of the resource within `radius` tiles of `position` (for water, no water tiles; for wood, no trees), it returns `None` instead of a ResourcePatch.
+
 ## Resource Types
 
 ### 1. Ore Resources
