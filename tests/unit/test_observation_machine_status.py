@@ -98,7 +98,8 @@ def test_inserters_are_listed_with_their_reason():
     assert T.format_machine_status(entities).splitlines() == [
         "### Machine Status",
         "- fast-inserter: 1 (1 no power at (2.5, 4.5))",
-        "- inserter: 2 (1 working, 1 " + wait + " at (1.5, 4.5))",
+        # r22: the group key drops the target's position (lines group by kind of wait)
+        "- inserter: 2 (1 working, 1 waiting for items from iron-chest at (1.5, 4.5))",
     ]
 
 

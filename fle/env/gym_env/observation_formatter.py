@@ -19,6 +19,19 @@ POWER_NETWORKS_SHOWN = 10
 # kept whole, and a last line counts the machines on the lines left out.
 MACHINE_LINES_SHOWN = 20
 MACHINE_SECTION_CHARS = 10000
+# r22: at most this many chars per line (lower when the lines together would not fit the section): longer position
+# lists end with "+N more positions"
+MACHINE_LINE_CHARS = 1200
+# r22: ... but never below this many: past that, lines are left out whole (and counted) as before
+MACHINE_LINE_MIN_CHARS = 300
+# r22: target positions inside a status detail (serialize.lua detail_pos "(12.5, -3.5)"), removed from the state so
+# that machines in the same state are one group: " at (x, y)", " (x, y) to (x, y)", then any other " (x, y)"
+_MACHINE_DETAIL_POS = r"\(-?\d+(?:\.\d+)?, -?\d+(?:\.\d+)?\)"
+MACHINE_DETAIL_POS_RES = [
+    re.compile(r" at " + _MACHINE_DETAIL_POS),
+    re.compile(r" " + _MACHINE_DETAIL_POS + r" to " + _MACHINE_DETAIL_POS),
+    re.compile(r" " + _MACHINE_DETAIL_POS),
+]
 # Entity types listed in the Machine Status section
 MACHINE_TYPES = {
     "assembling-machine",
@@ -991,6 +1004,12 @@ class BasicObservationFormatter:
         rest counted. The section stays within MACHINE_SECTION_CHARS: lines are
         kept whole and the last line counts the machines on the lines left out.
 
+        r22: the state leaves out the target positions in the detail (MACHINE_DETAIL_POS_RES),
+        so "waiting for items from assembling-machine-1 at (12.5, -3.5)" and "... at (15.5, -3.5)"
+        are one state. A line is at most MACHINE_LINE_CHARS (less when the lines together would
+        not fit): the longest position lists end with "+N more positions", then the smallest
+        non-working states are counted ("N more machines in M other states").
+
         Example:
         ### Machine Status
         - assembling-machine-1 [iron-gear-wheel]: 3 (2 working, 1 missing iron-plate (0 of 1 per craft) at (7.5, 1.5))
@@ -1027,45 +1046,98 @@ class BasicObservationFormatter:
             status = attr(e, "status")
             status = str(getattr(status, "value", status) or "unknown")
             state = attr(e, "status_detail") or status.replace("_", " ")
+            # r22: without the target positions (the machine's own position is listed after "at")
+            for rx in MACHINE_DETAIL_POS_RES:
+                state = rx.sub("", str(state))
+            state = state or status.replace("_", " ")
             groups.setdefault(name, {}).setdefault(state, []).append(position(e))
         if not groups:
             return ""
 
-        # (line, working machines, non-working machines) per name
-        entries: List[Tuple[str, int, int]] = []
-        for name in sorted(groups):
+        def where_text(group: List[Optional[Tuple[float, float]]], k: int) -> str:
+            # r22: the first k positions (k >= 1), then "+N more positions" for the rest
+            placed = sorted(p for p in group if p is not None)
+            where = positions_text(placed[:k])
+            if 0 < k < len(placed):
+                m = len(placed) - k
+                where += f" +{m} more position{'s' if m != 1 else ''}"
+            if len(placed) < len(group):
+                where = (
+                    where + " " if where else ""
+                ) + f"({len(group) - len(placed)} without a position)"
+            return where
+
+        def render(name: str, cap: int) -> Tuple[str, int, int]:
+            """r22: (line, working machines, non-working machines), the line at most
+            cap chars when shortening can make it so."""
             states = groups[name]
-            parts = []
-            working = stalled = 0
-            for state in sorted(
-                states, key=lambda k: (k not in MACHINE_WORKING_STATES, k)
-            ):
-                group = states[state]
-                text = f"{len(group)} {state}"
-                if state in MACHINE_WORKING_STATES:
-                    working += len(group)
+            order = sorted(states, key=lambda k: (k not in MACHINE_WORKING_STATES, k))
+            shown = {s: sum(p is not None for p in states[s]) for s in order}
+            kept = list(order)
+            working = sum(len(states[s]) for s in order if s in MACHINE_WORKING_STATES)
+            stalled = sum(len(states[s]) for s in order) - working
+
+            def build() -> str:
+                parts = []
+                for state in kept:
+                    group = states[state]
+                    text = f"{len(group)} {state}"
+                    if state not in MACHINE_WORKING_STATES:
+                        text += f" at {where_text(group, shown[state])}"
+                    parts.append(text)
+                left = [s for s in order if s not in kept]
+                if left:
+                    n = sum(len(states[s]) for s in left)
+                    parts.append(
+                        f"{n} more machine{'s' if n != 1 else ''} in {len(left)} "
+                        f"other state{'s' if len(left) != 1 else ''}"
+                    )
+                return f"- {name}: {working + stalled} ({', '.join(parts)})"
+
+            line = build()
+            while len(line) > cap:
+                cut = [s for s in kept if s not in MACHINE_WORKING_STATES and shown[s] > 1]
+                if cut:
+                    s = max(cut, key=lambda k: (shown[k], k))
+                    shown[s] -= max(1, shown[s] // 4)
                 else:
-                    stalled += len(group)
-                    placed = [p for p in group if p is not None]
-                    where = positions_text(placed)
-                    if len(placed) < len(group):
-                        where = (
-                            where + " " if where else ""
-                        ) + f"({len(group) - len(placed)} without a position)"
-                    text += f" at {where}"
-                parts.append(text)
-            entries.append(
-                (
-                    f"- {name}: {working + stalled} ({', '.join(parts)})",
-                    working,
-                    stalled,
-                )
-            )
+                    stalled_kept = [s for s in kept if s not in MACHINE_WORKING_STATES]
+                    if len(stalled_kept) <= 1:
+                        break
+                    kept.remove(min(stalled_kept, key=lambda k: (len(states[k]), k)))
+                line = build()
+            return line, working, stalled
+
+        names = sorted(groups)
+        # (line, working machines, non-working machines) per name
+        entries: List[Tuple[str, int, int]] = [
+            render(name, MACHINE_LINE_CHARS) for name in names
+        ]
 
         lines = ["### Machine Status"]
         used = len(lines[0])
         # room kept for the last line when lines are left out
         budget = MACHINE_SECTION_CHARS - 80
+        # r22: the lines that are listed share the room: a line shorter than its
+        # share keeps its length, the longer ones are cut to the same cap
+        listed, seen_working = [], 0
+        for line, working, stalled in entries:
+            if not stalled:
+                seen_working += 1
+                if seen_working > MACHINE_LINES_SHOWN:
+                    continue
+            listed.append(len(line) + 1)
+        room, cap = budget - used, MACHINE_LINE_CHARS
+        listed.sort()
+        for i, n in enumerate(listed):
+            share = room // (len(listed) - i)
+            if n > share:
+                cap = max(MACHINE_LINE_MIN_CHARS, min(cap, share - 1))
+                break
+            room -= n
+        entries = [
+            e if len(e[0]) <= cap else render(name, cap) for name, e in zip(names, entries)
+        ]
         all_working_lines = more_working_lines = 0
         left_working = left_stalled = 0
         for line, working, stalled in entries:

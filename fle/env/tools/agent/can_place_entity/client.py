@@ -41,7 +41,12 @@ def placement_check(name: str, direction, response: dict) -> ent.PlacementCheck:
             )
         if in_inventory <= 0:
             missing.append(f"no {name} in your inventory")
-        reason = "fits, but " + " and ".join(missing) if missing else None
+        # a server note on a fit (r22: what place_entity would replace) is kept
+        note = str(reason).strip('"') if reason else None
+        if missing:
+            reason = "fits, but " + " and ".join(missing) + (f"; {note}" if note else "")
+        else:
+            reason = note
     position = response.get("position") or {}
     return ent.PlacementCheck(
         entity=name,

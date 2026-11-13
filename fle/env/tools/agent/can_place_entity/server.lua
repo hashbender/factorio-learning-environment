@@ -223,7 +223,8 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
         return finish(false, entity .. " already stands at (" .. same.position.x .. ", " .. same.position.y
             .. "); place_entity does not build over an entity of the same name (it does not turn or replace it)")
     end
-    -- Nor over another entity the game would let it replace (e.g. a belt over an underground belt)
+    -- Over another entity the game lets it replace (e.g. a belt over an underground belt or a splitter):
+    -- place_entity replaces it too, as a player's build does (r22), and gives its item back
     if fits then
         local own = mask_layers(prototype)
         local never_here = {["character"] = true, ["item-entity"] = true, ["corpse"] = true, ["character-corpse"] = true,
@@ -233,12 +234,10 @@ storage.actions.can_place_entity = function(player_index, entity, direction, x, 
         local ok_f, found_here = pcall(surface.find_entities_filtered, {area = area})
         for _, other in pairs(ok_f and found_here or {}) do
             if other.valid and not never_here[other.type] and masks_collide(own, mask_layers(other.prototype)) then
-                result.blocked_count = 1
-                table.insert(result.blocked_by, {kind = quoted("entity"), name = quoted(other.name), x = other.position.x, y = other.position.y})
                 local what = other.name
                 if other.type == "underground-belt" then what = what .. " (" .. other.belt_to_ground_type .. ")" end
-                return finish(false, what .. " stands at (" .. other.position.x .. ", " .. other.position.y
-                    .. ") in its footprint; place_entity does not build over or replace another entity")
+                return finish(true, "place_entity would replace " .. what .. " at (" .. other.position.x .. ", "
+                    .. other.position.y .. "), as in the game; its item goes back to your inventory")
             end
         end
     end

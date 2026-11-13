@@ -318,6 +318,21 @@ def describe(
     return None
 
 
+def _empty_tank(entity_type: str, state: Dict[str, str]) -> bool:
+    """r22: a storage tank the game reports as working that holds no fluid: status_detail
+    "empty" (serialize.lua), or no fluid box with fluid, or a fluid_amount of 0."""
+    if entity_type != "storage-tank" or state.get("status", "") not in ("WORKING", "NORMAL"):
+        return False
+    if state.get("status_detail") == "empty":
+        return True
+    if "fluid_amount" in state:
+        try:
+            return float(state["fluid_amount"]) <= 0
+        except ValueError:
+            pass
+    return "fluid_box" in state and state["fluid_box"] in EMPTY_VALUES
+
+
 def render_type(entity_type: str, entities: List[Dict[str, str]], level: int) -> str:
     return render_type_noted(entity_type, entities, level)[0]
 
@@ -330,6 +345,9 @@ def render_type_noted(
     for _, state in prepared:
         if state.get("name") == entity_type:
             del state["name"]  # the type is the header
+        # r22: the game reports an empty storage tank as working; here it is EMPTY
+        if _empty_tank(entity_type, state):
+            state["status"] = "EMPTY"
     n = len(prepared)
     lines = [f"- {entity_type}: {n}"]
     positions = [p for p, _ in prepared if p is not None]

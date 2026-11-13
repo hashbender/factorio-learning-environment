@@ -29,3 +29,4 @@ The `PlacementCheck` has:
 - `offshore-pump must be placed at the edge of water, facing the water`
 - `transport-belt already stands at (9.5, 3.5); place_entity does not build over an entity of the same name (it does not turn or replace it)`: the game would turn or replace it, `place_entity` does not; that entity is in `blocked_by`
 - `fits, but out of reach (distance 14.2, reach 10)`, `fits, but no stone-furnace in your inventory`
+- `place_entity would replace underground-belt (input) at (9.5, 3.5), as in the game; its item goes back to your inventory`: with `fits` True, the entity stands on one the game lets it replace (fast replace, e.g. a belt on an underground belt or a splitter); `place_entity` replaces it

@@ -128,3 +128,19 @@ def test_build_spec_matches_the_pre_check():
     assert "storage.utils.return_replaced(player, victims)" in PLACE
     assert "create_entity(build_spec(new_position, true))" in PLACE
     assert "storage.utils.can_place_entity(player, entity, position, entity_direction)" in PLACE
+
+
+def test_can_place_entity_says_place_entity_would_replace():
+    from fle.env.tools.agent.can_place_entity.client import placement_check
+
+    src = (ROOT / "fle/env/tools/agent/can_place_entity/server.lua").read_text()
+    assert "place_entity does not build over or replace another entity" not in src
+    assert 'return finish(true, "place_entity would replace "' in src
+    note = '"place_entity would replace underground-belt (input) at (1.5, 1.5), as in the game; its item goes back to your inventory"'
+    base = {"fits": True, "in_reach": True, "in_inventory": 3, "position": {"x": 1.5, "y": 1.5}, "reason": note}
+    pc = placement_check("transport-belt", None, base)
+    assert pc.can_place and pc.fits and pc.reason == note.strip('"')
+    pc = placement_check("transport-belt", None, dict(base, in_inventory=0))
+    assert not pc.can_place and pc.reason.startswith("fits, but no transport-belt in your inventory; place_entity would replace")
+    pc = placement_check("transport-belt", None, dict(base, reason=None))
+    assert pc.can_place and pc.reason is None
