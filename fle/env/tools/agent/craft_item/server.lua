@@ -206,6 +206,77 @@ storage.actions.craft_item = function(player_index, entity, count)
         return table.concat(parts, ", ")
     end
 
+    -- Slot use of the whole plan, step by step, before anything is crafted: each step's ingredients
+    -- leave the inventory (freeing the slots they no longer need) and its product goes in (filling
+    -- its part-filled stacks first, then free slots). Returns nil when every step fits, else the
+    -- step's item name and how many more free slots it would need.
+    local function plan_slots_short(player, steps)
+        local inventory = player.get_main_inventory()
+        if not inventory then return nil end
+        local free, held_slots = 0, {}
+        for i = 1, #inventory do
+            local stack = inventory[i]
+            if not stack.valid_for_read then
+                free = free + 1
+            else
+                held_slots[stack.name] = (held_slots[stack.name] or 0) + 1
+            end
+        end
+        local cnt, slots = {}, {}
+        local function track(name)
+            if cnt[name] == nil then
+                cnt[name] = player.get_item_count(name)
+                slots[name] = held_slots[name] or 0
+            end
+        end
+        local function stack_size(name)
+            local proto = prototypes.item[name]
+            return proto and proto.stack_size or 1
+        end
+        for _, step in ipairs(steps) do
+            for _, ingredient in pairs(step.recipe.ingredients) do
+                track(ingredient.name)
+                cnt[ingredient.name] = cnt[ingredient.name] - ingredient.amount * step.crafts
+                local keep = math.ceil(math.max(cnt[ingredient.name], 0) / stack_size(ingredient.name))
+                if keep < slots[ingredient.name] then
+                    free = free + slots[ingredient.name] - keep
+                    slots[ingredient.name] = keep
+                end
+            end
+            track(step.name)
+            cnt[step.name] = cnt[step.name] + step.crafts * step.recipe.products[1].amount
+            local need = math.ceil(cnt[step.name] / stack_size(step.name))
+            if need > slots[step.name] then
+                free = free - (need - slots[step.name])
+                slots[step.name] = need
+            end
+            if free < 0 then
+                return step.name, -free
+            end
+        end
+        return nil
+    end
+
+    -- Undo one step whose product did not all fit: take back what went in and return the
+    -- ingredients (they held those slots a moment ago). Nothing is lost; if the game still
+    -- refuses some ingredient, it is spilled at the character's feet and that is said.
+    local function undo_step(player, step, inserted)
+        if inserted > 0 then
+            player.remove_item({name = step.name, count = inserted})
+        end
+        local spilled = {}
+        for _, ingredient in pairs(step.recipe.ingredients) do
+            local want = ingredient.amount * step.crafts
+            local back = player.insert({name = ingredient.name, count = want})
+            if back < want then
+                player.surface.spill_item_stack{position = player.position,
+                                                stack = {name = ingredient.name, count = want - back}}
+                table.insert(spilled, ingredient.name .. " x" .. (want - back))
+            end
+        end
+        return spilled
+    end
+
     local function attempt_craft(player, entity_name, count)
         local can_craft, recipe_or_error = can_craft_recipe(player, entity_name)
         if not can_craft then
@@ -231,6 +302,11 @@ storage.actions.craft_item = function(player_index, entity, count)
             if not can_insert then
                 return 0, error_msg
             end
+            local short_at, short_slots = plan_slots_short(player, steps)
+            if short_at then
+                return 0, "Inventory is full - crafting " .. short_at .. " on the way needs " .. short_slots ..
+                    " more free slot" .. (short_slots == 1 and "" or "s") .. ". Nothing was crafted"
+            end
 
             local crafted = 0
             for i, step in ipairs(steps) do
@@ -248,7 +324,19 @@ storage.actions.craft_item = function(player_index, entity, count)
                 local made = step.crafts * step.recipe.products[1].amount
                 local inserted = player.insert({name = step.name, count = made})
                 if inserted < made then
-                    player.surface.spill_item_stack(player.position, {name = step.name, count = made - inserted})
+                    -- never consume ingredients and lose the product: undo this step and stop
+                    local spilled = undo_step(player, step, inserted)
+                    local msg = "Inventory is full - no room for " .. made .. " " .. step.name ..
+                        " (only " .. inserted .. " fit); that step was undone"
+                    if #spilled > 0 then
+                        msg = msg .. " (" .. table.concat(spilled, ", ") .. " spilled at your feet)"
+                    end
+                    if i == 2 then
+                        msg = msg .. ". The craft step before it was done: its items are in your inventory"
+                    elseif i > 2 then
+                        msg = msg .. ". The " .. (i - 1) .. " craft steps before it were done: their items are in your inventory"
+                    end
+                    return 0, msg
                 end
                 storage.elapsed_ticks = storage.elapsed_ticks + calculate_crafting_ticks(step.recipe, step.crafts)
                 if i == #steps then

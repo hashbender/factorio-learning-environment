@@ -40,7 +40,7 @@ The whole recipe tree is worked out before anything is crafted. Intermediates yo
 ## Important Considerations
 
 - Raw resources like iron ore and copper ore cannot be crafted. These must be mined using mining tools instead. Attempting to craft raw resources will result in an error.
-- Crafting if your inventory is full will also result in an error.
+- Crafting if your inventory is full will also result in an error. The free slots are checked for every step of the recipe tree, intermediates included, before anything is crafted; if a step would not fit, nothing is crafted and no items are used.
 
 ## Examples
 

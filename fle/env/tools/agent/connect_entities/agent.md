@@ -95,6 +95,8 @@ print(f"Connected offshore_pump at {offshore_pump.position} to boiler at {boiler
 Key points:
 
 - Respects fluid input/output connection points
+- A Pump connects from its output port (`output_position`) and to its input port (`input_position`).
+- An empty StorageTank (or a Pump holding no fluid) can be the source for a target of any fluid.
 - Pipe groups track fluid system IDs
 - What each connection type builds:
   - `Prototype.Pipe`: pipes only. Pipe-to-ground in your inventory is not used. The route follows the game's walking path; if that cannot be built (it leads over a cliff, the path search times out, or there is none), the tool searches a route tile by tile.

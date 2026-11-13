@@ -10,6 +10,8 @@ insert_item(entity: Prototype, target: Union[Entity, EntityGroup], quantity: int
 
 The function returns the updated target entity.
 
+If no item goes in, the call raises an error that says why. If some but fewer than `quantity` go into an entity (you hold fewer, or the target has no room for more), the call does not raise: it returns the target, and the target's `warnings` end with the count and the reason, e.g. `insert_item: 12 of 64 coal went in; no room for more (...); the other 52 were not inserted`. Items that were not inserted stay in your inventory.
+
 ### Parameters
 
 - `item`: Prototype of the item to insert

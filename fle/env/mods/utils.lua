@@ -112,6 +112,65 @@ storage.utils.can_place_entity = function(player, entity_name, position, directi
     return player.surface.can_place_entity(params)
 end
 
+-- What a build at `position` would fast-replace, as a player's build does (build_check_type manual,
+-- fast_replace): the entities of the new entity's fast-replace group under its footprint, e.g. an
+-- underground belt or a splitter under a transport belt, a pipe-to-ground under a pipe. Empty when
+-- the game would not fast-replace there. Each: {entity, name, position, items}.
+storage.utils.fast_replace_victims = function(surface, entity_name, position, direction, force)
+    local proto = prototypes.entity[entity_name]
+    local group = proto and proto.fast_replaceable_group
+    if not group or group == "" then return {} end
+    local ok, can = pcall(function()
+        return surface.can_fast_replace{name = entity_name, position = position, direction = direction, force = force}
+    end)
+    if not (ok and can) then return {} end
+    local box = proto.collision_box
+    local lx, ly, rx, ry = box.left_top.x, box.left_top.y, box.right_bottom.x, box.right_bottom.y
+    if direction == defines.direction.east or direction == defines.direction.west then
+        lx, ly, rx, ry = -ry, lx, -ly, rx
+    end
+    local area = {{position.x + math.min(lx, rx) + 0.01, position.y + math.min(ly, ry) + 0.01},
+                  {position.x + math.max(lx, rx) - 0.01, position.y + math.max(ly, ry) - 0.01}}
+    local victims = {}
+    for _, e in pairs(surface.find_entities_filtered{area = area, force = force}) do
+        if e.valid and e.type ~= "entity-ghost" and e.prototype.fast_replaceable_group == group then
+            table.insert(victims, {entity = e, name = e.name, position = {x = e.position.x, y = e.position.y},
+                                   items = e.prototype.items_to_place_this or {}})
+        end
+    end
+    return victims
+end
+
+-- After a fast-replacing build: each replaced entity's item goes back to the character (a player's
+-- build gives it to the player; the character here is not a LuaPlayer, so the game would not).
+-- What does not fit is spilled at the character's feet. Returns one note per replaced entity.
+storage.utils.return_replaced = function(character, victims)
+    local notes = {}
+    for _, v in ipairs(victims or {}) do
+        if not v.entity.valid then
+            local where = string.format("(%s, %s)", v.position.x, v.position.y)
+            local item = v.items[1]
+            if item then
+                local name = item.name
+                local count = item.count or 1
+                local inserted = character.insert{name = name, count = count}
+                if inserted < count then
+                    character.surface.spill_item_stack{position = character.position,
+                                                       stack = {name = name, count = count - inserted}}
+                    table.insert(notes, "replaced " .. v.name .. " at " .. where .. " (as in the game); its " ..
+                        name .. " was spilled at your feet: your inventory is full")
+                else
+                    table.insert(notes, "replaced " .. v.name .. " at " .. where .. " (as in the game); its " ..
+                        name .. " went back to your inventory")
+                end
+            else
+                table.insert(notes, "replaced " .. v.name .. " at " .. where .. " (as in the game)")
+            end
+        end
+    end
+    return notes
+end
+
 storage.utils.avoid_entity = function(player_index, entity, position, direction)
     local player = storage.agent_characters[player_index]
     local player_position = player.position

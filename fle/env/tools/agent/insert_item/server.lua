@@ -355,7 +355,24 @@ storage.actions.insert_item = function(player_index, insert_item, count, x, y, t
             drain_entity_durability(closest_entity, insert_item, gained - lost)
         end
         -- game.print("Successfully inserted " .. inserted .. " items.")
-        return storage.utils.serialize_entity(closest_entity)
+        local serialized = storage.utils.serialize_entity(closest_entity)
+        -- fewer than asked: say how many went in and why (the client reports it)
+        if inserted < count and type(serialized) == "table" then
+            local why
+            if inserted < insertable_count then
+                if closest_entity.type == "transport-belt" then
+                    why = "a single belt takes one item per insert_item call"
+                else
+                    local info = get_inventory_info(closest_entity, insert_item)
+                    why = "no room for more" .. (info ~= "" and (" " .. info) or "")
+                end
+            else
+                why = "you held only " .. item_count
+            end
+            serialized.fle_inserted = inserted
+            serialized.fle_short_reason = "\"" .. why .. "\""
+        end
+        return serialized
     else
         local reason
         if closest_entity.type == "transport-belt" then

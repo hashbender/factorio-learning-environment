@@ -18,7 +18,7 @@ SERVER_LUA = (
 )
 
 STUB_LUA = """
-defines = {direction = {north = 0, east = 4, south = 8, west = 12}}
+defines = {direction = {north = 0, east = 4, south = 8, west = 12}, build_check_type = {manual = 1}}
 prototypes = {entity = {}, item = {}}
 local box = {left_top = {x = -0.4, y = -0.4}, right_bottom = {x = 0.4, y = 0.4}}
 for n, reach in pairs({["underground-belt"] = 5, ["fast-underground-belt"] = 7}) do
@@ -78,6 +78,8 @@ player = {valid = true, surface = surface, force = {name = "player"}, position =
 function player.get_item_count() return 10 end
 function player.remove_item() return 1 end
 storage = {fast = true, actions = {}, utils = {
+    fast_replace_victims = function() return {} end,  -- r22: nothing to fast-replace here
+    return_replaced = function() return {} end,
     ensure_valid_character = function() return player end,
     get_entity_direction = function(_, d) return d end,
     avoid_entity = function() end,

@@ -80,6 +80,10 @@ print(f"Placed drill at {drill.position} to mine iron ore")
 - Without `type`, the new underground belt is an output end when the nearest underground belt of the same kind behind it (against its travel direction, at most 5 tiles back for `UndergroundBelt`, 7 for fast, 9 for express) travels the same way and is an input end with no partner yet; it then connects to that input. Otherwise it is an input end. So an entrance placed first and an exit placed after it, both with the same `direction`, connect.
 - The returned `UndergroundBelt` has `is_input` (True for an input end) and `connected_to` (the id of the other end of its pair, if it has one).
 
+### Building over an entity (fast replace)
+
+- As in the game, an entity placed onto an entity of the same fast-replace group replaces it, e.g. a transport belt, underground belt or splitter onto any of these (a belt onto either tile of a splitter replaces the whole splitter), or a pipe onto a pipe-to-ground. The replaced entity's item goes back to your inventory (spilled at your feet if it does not fit), and the returned entity's `warnings` name what was replaced.
+
 ## Best Practices
 
 - Use nearest buildable to ensure safe placement

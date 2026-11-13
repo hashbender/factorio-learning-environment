@@ -100,10 +100,22 @@ class InsertItem(Tool):
 
         cleaned_response = self.clean_response(response)
         if isinstance(cleaned_response, dict):
+            # fewer went in than asked (you hold fewer, or the target is full): no exception, as before;
+            # the returned entity's warnings say how many went in and why
+            inserted = cleaned_response.pop("fle_inserted", None)
+            reason = cleaned_response.pop("fle_short_reason", None)
+            partial = None
+            if inserted is not None and int(inserted) < quantity:
+                partial = f"insert_item: {int(inserted)} of {quantity} {name} went in"
+                if reason:
+                    partial += f"; {str(reason).strip(chr(34))}"
+                partial += f"; the other {quantity - int(inserted)} were not inserted"
             if not isinstance(target, (BeltGroup, PipeGroup)):
                 _type = type(target)
                 prototype = Prototype._value2member_map_[(target.name, type(target))]
                 target = _type(prototype=prototype, **cleaned_response)
+                if partial:
+                    target.warnings = list(target.warnings or []) + [partial]
             elif isinstance(target, BeltGroup):
                 group = self.get_entities(
                     {

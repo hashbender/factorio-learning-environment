@@ -634,6 +634,8 @@ class Entity(EntityCore):
                 else:
                     if clean_key in ("warnings", "status_detail") and not value:
                         continue  # don't show an empty warnings list or no status detail
+                    if clean_key == "filters" and value is None:
+                        continue  # an inserter that does not filter
                     repr_dict[clean_key] = value
 
         repr_dict["height"] = self.tile_dimensions.tile_height
@@ -740,7 +742,8 @@ class Accumulator(StaticEntity, Electric):
 
 class Inserter(StaticEntity, Electric):
     """Represents an inserter that moves items between entities.
-    Requires electricity to power"""
+    Requires electricity to power
+    filters: the items its filter is set to (it moves only those); None when it does not filter"""
 
     pickup_position: Optional[Position] = None
     drop_position: Position
@@ -749,8 +752,24 @@ class Inserter(StaticEntity, Electric):
     drop_target: Optional[str] = None
     # The stack in the inserter's hand, e.g. {"name": "iron-plate", "count": 1}
     held_item: Optional[Dict[str, Any]] = None
+    # The filter's items while filtering is on (the game's use_filters); None when it is off
+    filters: Optional[List[str]] = None
     _width: float = 1
     _height: float = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def _filters_from_game(cls, data):
+        # serialize.lua sends use_filters plus the set filter slots (a Lua list; an empty
+        # one arrives as a dict, or not at all)
+        if isinstance(data, dict) and "use_filters" in data:
+            data = dict(data)
+            on = bool(data.pop("use_filters"))
+            f = data.get("filters")
+            if isinstance(f, dict):
+                f = [f[k] for k in sorted(f, key=lambda k: int(k) if str(k).isdigit() else 0)]
+            data["filters"] = (list(f) if f else []) if on else None
+        return data
 
 
 class TileMap(BaseModel):

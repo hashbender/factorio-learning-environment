@@ -1502,6 +1502,21 @@ storage.utils.serialize_entity = function(entity)
         if ok_held and held and held.valid_for_read then
             serialized.held_item = {name = "\""..held.name.."\"", count = held.count}
         end
+        -- the filter (set_entity_recipe / place_layout set it): use_filters plus the set slots
+        local ok_uf, use_filters = pcall(function() return entity.use_filters end)
+        if ok_uf then
+            serialized.use_filters = use_filters and true or false
+            if use_filters then
+                local filters = {}
+                local ok_n, n = pcall(function() return entity.filter_slot_count end)
+                for i = 1, (ok_n and n or 0) do
+                    local ok_f, f = pcall(function() return entity.get_filter(i) end)
+                    local fname = ok_f and f and (type(f) == "table" and f.name or f) or nil
+                    if type(fname) == "string" then table.insert(filters, "\"" .. fname .. "\"") end
+                end
+                if #filters > 0 then serialized.filters = filters end
+            end
+        end
 
         local burner = entity.burner
         if burner then
@@ -1573,6 +1588,12 @@ storage.utils.serialize_entity = function(entity)
                 end
             end
         end
+        -- the tiles a pipe must occupy, input first, as for the other fluid handlers
+        -- (left unset when there are none: an empty Lua table would be read back as a dict)
+        local points = {}
+        if serialized.input_position then table.insert(points, serialized.input_position) end
+        if serialized.output_position then table.insert(points, serialized.output_position) end
+        if #points > 0 then serialized.connection_points = points end
     end
 
     -- Add the current research to the lab
@@ -1681,16 +1702,21 @@ storage.utils.serialize_entity = function(entity)
         serialized.connection_points = filtered_points
 
         -- Add fluid box information
+        local holds_fluid = false
         if entity.fluidbox and #entity.fluidbox > 0 then
-            game.print("There is a fluidbox")
             local fluid = entity.fluidbox[1]
             if fluid then
+                holds_fluid = true
                 serialized.fluid = string.format("\"%s\"", fluid.name)
                 serialized.fluid_amount = fluid.amount
                 serialized.fluid_temperature = fluid.temperature
                 -- Factorio 2.0: get_fluid_system_id -> get_fluid_segment_id
                 serialized.fluid_system_id = entity.fluidbox.get_fluid_segment_id(1)
             end
+        end
+        -- the game reports an empty tank as working; say that it is empty
+        if not holds_fluid then
+            serialized.status_detail = "\"empty\""
         end
 
         -- Add warning if some connection points were filtered

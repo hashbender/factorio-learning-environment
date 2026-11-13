@@ -192,9 +192,17 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
         end
     end
 
-    -- create_entity spec; an underground belt gets its end (input or output)
-    local function build_spec(at)
+    -- create_entity spec; an underground belt gets its end (input or output). Built as a player
+    -- builds it (build_check_type manual, fast_replace): the same check as the pre-check, so an
+    -- entity of the same fast-replace group (a belt onto an underground belt or a splitter, a pipe
+    -- onto a pipe-to-ground) is replaced, as in the game. The character is not a LuaPlayer, so
+    -- the replaced entity's item is given back by fast_replace_victims / return_replaced.
+    local function build_spec(at, no_replace)
         local spec = {name = entity, force = player.force, position = at, direction = entity_direction}
+        if not no_replace then
+            spec.build_check_type = defines.build_check_type.manual
+            spec.fast_replace = true
+        end
         local prototype = prototypes.entity[entity]
         if prototype.type == "underground-belt" then
             spec.type = belt_type or underground_belt_type(player.surface, prototype, at, entity_direction)
@@ -315,7 +323,9 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
                                 if dx == -radius or dx == radius or dy == -radius or dy == radius then
                                     new_position = {x = position.x + dx, y = position.y + dy}
                                     storage.utils.avoid_entity(player_index, entity, position, direction)
+                                    -- a nearby spot never replaces what stands there
                                     can_build = storage.utils.can_place_entity(player, entity, new_position, entity_direction)
+                                        and #storage.utils.fast_replace_victims(player.surface, entity, new_position, entity_direction, player.force) == 0
                                     if can_build then
                                         found_position = true
                                         break
@@ -329,7 +339,7 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
                 end
 
                 if found_position then
-                    local have_built = player.surface.create_entity(build_spec(new_position))
+                    local have_built = player.surface.create_entity(build_spec(new_position, true))
                     if have_built then
                         player.remove_item{name = item_name, count = 1}
                         -- game.print("Placed " .. entity .. " at " .. new_position.x .. ", " .. new_position.y)
@@ -435,23 +445,32 @@ storage.actions.place_entity = function(player_index, entity, direction, x, y, e
         end
 
         -- Any other ghost under the new entity is removed by the game
+        local victims = storage.utils.fast_replace_victims(player.surface, entity, position, entity_direction, player.force)
         local have_built = player.surface.create_entity(build_spec(position))
 
         if have_built then
             player.remove_item{name = item_name, count = 1}
+            local replaced_notes = storage.utils.return_replaced(player, victims)
             -- game.print("Placed " .. entity .. " at " .. position.x .. ", " .. position.y)
 
             -- Return the entity just built. (A search around the position could return a
             -- neighbouring entity of the same name, e.g. the next inserter in a row, with
             -- its position, direction and pickup / drop targets.)
-            return storage.utils.note_dropped_direction(storage.utils.serialize_entity(have_built), have_built, entity_direction)
+            local serialized = storage.utils.note_dropped_direction(storage.utils.serialize_entity(have_built), have_built, entity_direction)
+            if #replaced_notes > 0 and type(serialized) == "table" then
+                if type(serialized.warnings) ~= "table" then serialized.warnings = {} end
+                for _, note in ipairs(replaced_notes) do
+                    table.insert(serialized.warnings, "\"" .. note .. "\"")
+                end
+            end
+            return serialized
         else
             -- create_entity returned nil - collect diagnostic information
             local diag = {}
             diag.entity_name = entity
             diag.position = {x = position.x, y = position.y}
             diag.direction = entity_direction
-            diag.can_place = player.surface.can_place_entity{name = entity, position = position, force = player.force, direction = entity_direction}
+            diag.can_place = storage.utils.can_place_entity(player, entity, position, entity_direction)
 
             -- Check for blocking entities
             local prototype = prototypes.entity[entity]

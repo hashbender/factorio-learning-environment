@@ -1,6 +1,6 @@
 from typing import Union
 
-from fle.env.entities import Entity
+from fle.env.entities import Entity, Inserter
 from fle.env.game_types import Prototype, RecipeName
 from fle.env.tools import Tool
 
@@ -54,10 +54,9 @@ class SetEntityRecipe(Tool):
 
         entity = metaclass(**cleaned_response, prototype=matching_prototype)
 
-        # Handle filter inserters differently
-        if "filter" in entity.name:
-            entity.filter = name  # Store the filter item
-        else:
+        # An inserter's filter comes back in its `filters` (read from the game); a recipe is
+        # stored only on the machines that have one
+        if not isinstance(entity, Inserter):
             entity.recipe = name  # Store the recipe for assembling machines
 
         return entity

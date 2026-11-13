@@ -12,7 +12,9 @@ from fle.env import (
     IndexedPosition,
     MultiFluidHandler,
     PipeGroup,
+    Pump,
     PumpJack,
+    StorageTank,
 )
 from fle.env.game_types import Prototype, prototype_by_name
 from fle.env.tools.agent.connect_entities.resolver import Resolver
@@ -316,6 +318,21 @@ class FluidConnectionResolver(Resolver):
             # an assembling machine whose recipe makes a fluid: only its output ports
             case AdvancedAssemblingMachine() if source.output_connection_points:
                 source_positions = source.output_connection_points
+            # a pump moves whatever reaches its input: its output port, with the fluid it
+            # holds, or any fluid while it is empty
+            case Pump():
+                liquid = [fluid["name"] for fluid in (source.fluid_box or [])]
+                points = [source.output_position] if source.output_position else []
+                source_positions = [
+                    IndexedPosition(x=pos.x, y=pos.y, type=liquid[0] if liquid else "all")
+                    for pos in points
+                ]
+            # an empty storage tank is a buffer that any fluid may go through
+            case StorageTank() if not source.fluid_box:
+                source_positions = [
+                    IndexedPosition(x=pos.x, y=pos.y, type="all")
+                    for pos in source.connection_points
+                ]
             case FluidHandler():
                 liquid = [fluid["name"] for fluid in source.fluid_box]
                 source_liquid = liquid[0] if liquid else ""
@@ -434,6 +451,12 @@ class FluidConnectionResolver(Resolver):
                 target_positions = [
                     IndexedPosition(x=pos.x, y=pos.y, type="")
                     for pos in target.input_connection_points
+                ]
+            # a pump takes fluid only at its input port
+            case Pump():
+                points = [target.input_position] if target.input_position else []
+                target_positions = [
+                    IndexedPosition(x=pos.x, y=pos.y, type="") for pos in points
                 ]
             case FluidHandler():
                 target_positions = [
