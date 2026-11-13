@@ -64,21 +64,22 @@ end
 
 -- Helper function to get chemical plant position offsets
 -- For a chemical plant whose entity.direction is north (Factorio 2.0 prototype):
---   Inputs are on the north side (y - 1.5)
---   Outputs are on the south side (y + 1.5)
+--   Inputs on the north side: the pipe tiles just outside it (y - 2)
+--   Outputs on the south side: the pipe tiles just outside it (y + 2)
+-- (the tile a pipe must occupy, like the refinery's and the assembler's points).
 -- Used only when the game's own pipe connections can't be read (see
 -- get_chemical_plant_fluid_mappings).
 local function get_chemical_plant_position_offsets(index, total, is_input)
     if is_input then
         if total == 1 then
-            return -1, -1.5  -- North side for single input
+            return -1, -2  -- North side for single input
         else
             -- For two inputs, space them out on north side
-            return -1 + (index - 1) * 2, -1.5
+            return -1 + (index - 1) * 2, -2
         end
     else
         -- Outputs are on the south side
-        return -1, 1.5
+        return -1, 2
     end
 end
 
@@ -147,9 +148,10 @@ local function fluid_names(list)
 end
 
 -- The chemical plant's connection points as the game has them: for each input
--- or output fluid box, the point between the plant's port tile and the tile a
--- pipe must occupy (LuaFluidBox.get_pipe_connections), typed with the fluid the
--- recipe puts in that box. Returns nil if the fluid boxes can't be read.
+-- or output fluid box, the tile a pipe must occupy (target_position of
+-- LuaFluidBox.get_pipe_connections, as the assembler's and the refinery's points
+-- are), typed with the fluid the recipe puts in that box. Returns nil if the
+-- fluid boxes can't be read.
 local function read_chemical_plant_fluid_mappings(entity, recipe)
     local fluid_inputs = fluid_names(recipe.ingredients)
     local fluid_outputs = fluid_names(recipe.products)
@@ -181,8 +183,8 @@ local function read_chemical_plant_fluid_mappings(entity, recipe)
             for _, connection in pairs(connections) do
                 if connection.position and connection.target_position then
                     local point = {
-                        x = (connection.position.x + connection.target_position.x) / 2,
-                        y = (connection.position.y + connection.target_position.y) / 2,
+                        x = connection.target_position.x,
+                        y = connection.target_position.y,
                         type = "\""..fluid.."\""
                     }
                     if production_type == "input" then

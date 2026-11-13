@@ -21,7 +21,7 @@ from fle.env import (
 )
 from fle.env.entities import BoundingBox, ElectricityPole
 from fle.env import DirectionInternal
-from fle.env.game_types import Prototype
+from fle.env.game_types import Prototype, prototype_by_name
 from fle.env.tools.admin.clear_collision_boxes.client import ClearCollisionBoxes
 from fle.env.tools.admin.extend_collision_boxes.client import ExtendCollisionBoxes
 from fle.env.tools.admin.get_cliffs.client import GetCliffs
@@ -52,6 +52,24 @@ from fle.env.tools.agent.pickup_entity.client import PickupEntity
 from fle.env.tools.agent.rotate_entity.client import RotateEntity
 from fle.env.tools import Tool
 from collections.abc import Set as AbstractSet
+
+# Entity types connect_entities returns inside a BeltGroup / PipeGroup / WallGroup /
+# ElectricityGroup (the rest of a result is returned as single entities).
+_GROUPABLE_PROTOTYPES = (
+    Prototype.TransportBelt,
+    Prototype.UndergroundBelt,
+    Prototype.FastTransportBelt,
+    Prototype.FastUndergroundBelt,
+    Prototype.ExpressTransportBelt,
+    Prototype.ExpressUndergroundBelt,
+    Prototype.StoneWall,
+    Prototype.Pipe,
+    Prototype.UndergroundPipe,
+    Prototype.SmallElectricPole,
+    Prototype.BigElectricPole,
+    Prototype.Substation,
+    Prototype.MediumElectricPole,
+)
 
 
 # Prototype names only: nothing else is put into a Lua command
@@ -1360,27 +1378,33 @@ class ConnectEntities(Tool):
             if not isinstance(entity_data, dict):
                 continue
 
+            name = entity_data.get("name")
+            requested = name in names_to_type
+            if not requested:
+                # The server returns the whole belt line / pole network, which can hold
+                # entities of other types than the ones requested (a splitter, a faster
+                # belt, another pole type). Those already existed: build them by their own
+                # prototype when they belong in a group, otherwise leave them out. They
+                # never fail a connection that was built.
+                other = prototype_by_name.get(name)
+                if other is None or other not in _GROUPABLE_PROTOTYPES:
+                    continue
+                try:
+                    self._process_warnings(entity_data)
+                    groupable_entities.append(
+                        other.value[1](prototype=other, **entity_data)
+                    )
+                except Exception:
+                    pass
+                continue
+
             try:
                 self._process_warnings(entity_data)
-                entity = metaclasses[entity_data["name"]](
-                    prototype=names_to_type[entity_data["name"]], **entity_data
+                entity = metaclasses[name](
+                    prototype=names_to_type[name], **entity_data
                 )
 
-                if entity.prototype in (
-                    Prototype.TransportBelt,
-                    Prototype.UndergroundBelt,
-                    Prototype.FastTransportBelt,
-                    Prototype.FastUndergroundBelt,
-                    Prototype.ExpressTransportBelt,
-                    Prototype.ExpressUndergroundBelt,
-                    Prototype.StoneWall,
-                    Prototype.Pipe,
-                    Prototype.UndergroundPipe,
-                    Prototype.SmallElectricPole,
-                    Prototype.BigElectricPole,
-                    Prototype.Substation,
-                    Prototype.MediumElectricPole,
-                ):
+                if entity.prototype in _GROUPABLE_PROTOTYPES:
                     groupable_entities.append(entity)
                 else:
                     path.append(entity)
@@ -2143,6 +2167,8 @@ class ConnectEntities(Tool):
         for entity_data in path_data.entities.values():
             if not isinstance(entity_data, dict):
                 continue
+            if entity_data.get("name") not in names_to_type:
+                continue   # not something this call builds: never picked up
             # clean up the first path
             self._process_warnings(entity_data)
             entity = metaclasses[entity_data["name"]](

@@ -111,8 +111,8 @@ def test_build_chemical_plant(game):
     )
 
 
-# The game's own input ports of the chemical plant at (x, y): the point between
-# each input port tile and the tile a pipe must occupy (FLE's connection point).
+# The game's own input ports of the chemical plant at (x, y): the tile a pipe must
+# occupy for each input port (FLE's connection point, as for assemblers and refineries).
 game_input_ports = """
 local plant = game.surfaces[1].find_entities_filtered{{name = "chemical-plant", position = {{{x}, {y}}}}}[1]
 local out = {{}}
@@ -120,8 +120,7 @@ for i = 1, #plant.fluidbox do
     local proto = plant.fluidbox.get_prototype(i)
     if proto.production_type == "input" then
         for _, pc in pairs(plant.fluidbox.get_pipe_connections(i)) do
-            out[#out + 1] = ((pc.position.x + pc.target_position.x) / 2) .. ","
-                .. ((pc.position.y + pc.target_position.y) / 2)
+            out[#out + 1] = pc.target_position.x .. "," .. pc.target_position.y
         end
     end
 end
